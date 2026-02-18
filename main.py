@@ -29,9 +29,9 @@ def run_simulation():
                 else:
                     print(f"🚨[Step {step}] TV({v_id})는 주변에 조건이 맞는 SV가 없습니다!")
         
-        # 테스트용이므로 1000초까지만 돌리고 강제 종료
-        if step > 1000:
-            print("1000초 도달. 시뮬레이션 중단.")
+        # 테스트용이므로 400초까지만 돌리고 강제 종료
+        if step > 400:
+            print("400초 도달. 시뮬레이션 중단.")
             break
         
     # 4. 환경 끄기

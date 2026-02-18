@@ -18,8 +18,7 @@ BW = 10e6                       # 대역폭 (10MHz)
 # 2. [VARIABLE -> FIXED] 실험 후 고정
 # --- 통신 및 자원 제약 ---
 ONE_HOP_LIMIT = 250             # 1-hop 통신 범위 (250m)
-SV_RESOURCE = 20                # SV 연산 자원
-RSU_RESOURCE = SV_RESOURCE * 10 
+SV_RESOURCE = 5 * (10**9)                # SV 연산 자원: 5 GHz
 COMP_INTENSITY = 1000           # 연산 복잡도 (1000 cycles/bit)
 WEIGHT_SV_DIR = 0.5                # SV 선택 시 방향 유사도 가중치
 WEIGHT_SV_RATE = 0.5               # SV 선택 시 전송 효율 가중치
@@ -30,17 +29,18 @@ WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중
 # 3. [VARIABLE] 실험 파라미터 (그래프 추출 시 수정)
 
 # --- 실험 1: 데이터 크기 및 리턴 비율 ---
-TASK_INPUT_SIZE_BITS = 3 * 1024 * 1024  # 인풋 데이터 (3 Mbits)
+TASK_MIN_MBITS = 2.0             # 최소 2 Mbits
+TASK_MAX_MBITS = 4.0             # 최소 4 Mbits
 ALPHA = 0.1                      # 리턴 데이터 비율 (0.1 ~ 1.0 가변) -> 실험 시 사용할 디폴트 값
 ALPHA_X_AXIS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]       # 그래프 그릴 때 사용
 
 # --- 실험 2: 환경 배치 및 밀도 ---
 TOTAL_VEHICLES = 100            # 총 차량 수는 고정
 TV_DENSITY_LIST = [0.1, 0.2, 0.3, 0.4, 0.5] # x축: 전체 중 TV가 차지하는 비율
-CURRENT_TV_DENSITY = 0.2        # 현재 실험값
+CURRENT_TV_DENSITY = 0.8        # 현재 실험값
 
 # --- 실험 3: 제약 조건 및 가중치 ---
-MAX_LATENCY = 0.1               # 최대 허용 지연 (100ms)
+MAX_LATENCY = 1.0               # 최대 허용 지연 (1s)
 BACKHAUL_DELAY = 0.003          # RSU 백홀 지연 (3ms)
 WEIGHT_F = 0.5                  # 실패율 가중치
 WEIGHT_D = 0.5                  # 딜레이 가중치

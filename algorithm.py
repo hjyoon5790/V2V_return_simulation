@@ -1,6 +1,7 @@
 import math
 import numpy as np
 import traci
+import random
 import constant as c    # 상수 파일 임포트
 
 """ 두 좌표(pos1과 pos2) 사이의 거리를 계산하는 함수 """
@@ -67,7 +68,14 @@ def sv_selection(tv_id):
     sv_candidates = []
     all_vehicles = traci.vehicle.getIDList()
     
-    # 1. 범위 내 SV 필터링 (Type & Distance)
+    # 1. 이번 TV의 랜덤 task 크기 생성 (2~4 Mbits)
+    task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
+    task_bits = task_mbits * (10**6)    # 비트 단위로 변환
+    
+    # 2. 연산 시간(Comp Delay) 미리 계산
+    t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
+    
+    # 3. 범위 내 SV 탐색 및 필터링 (Type & Distance & Delay)
     for v_id in all_vehicles:
         if v_id == tv_id:
             continue
@@ -75,41 +83,61 @@ def sv_selection(tv_id):
             sv_pos = traci.vehicle.getPosition(v_id)
             dist = calulate_distance(tv_pos, sv_pos)
             
-            # 리스트 맨 뒤에 새로운 데이터(딕셔너리) 추가
+            # (1) 통신 범위 확인
             if dist <= c.ONE_HOP_LIMIT:
+                #SV 후보의 상세 정보 계산
+                cos_sim = calculate_cosine_similarity(tv_id, v_id)
+                dir_score = (cos_sim + 1) / 2
+                # 통신 속도(Rate) 계산
+                gain = calculate_channel_gain(dist)
+                interf = get_total_interference(tv_id, sv_pos)
+                sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
+                rate = c.BW + math.log2(1 + sinr)   # Shannon Capacity
+                
+                # (2) 지연 시간 조건 확인
+                if rate <=0:
+                    continue        # 통신 불가능하면 패스
+                
+                t_tx = task_bits / rate     # 전송 시간 = 데이터 크기/속도
+                t_off = t_tx + t_comp
+                
+                # 최대 지연 허용 지연(1초)을 넘으면 후보 리스트에 넣지 않음(탈락!)
+                if t_off > c.MAX_LATENCY:
+                    continue
+                
+                # 조건 통과한 SV만 후보 리스트에 넣기
                 sv_candidates.append({
                     'id': v_id,
-                    'pos': sv_pos,
-                    'dist': dist
+                    'rate': rate,
+                    'dir_score': dir_score,
+                    't_off': t_off      # 나중에 확인용으로 저장
                 })
+                
+    # 4. 후보 없음: 1-hop 이내에 차량 없음 + 딜레이 제약
     if not sv_candidates:
-        return None         # 1-hop 이내에 차량 없음
+        ### 여기에 나중에 RSU에게 넘기는 코드 추가
+        return None
     
-    # 2. SV 후보의 상세 점수 계산(방향 유사도 & 통신 속도)
-    for sv in sv_candidates:
-        # 코사인 유사도 계산
-        cos_sim = calculate_cosine_similarity(tv_id, sv['id'])
-        sv['dir_score'] = (cos_sim + 1) / 2
-        
-        # 통신 속도 계산    ## 질문: 문법 + 전부 같은 시기(t_0)에서 계산되는게 맞는지
-        gain = calculate_channel_gain(sv['dist']) 
-        interf = get_total_interference(tv_id, sv['pos'])   # 실제 간섭값 가져오기
-        
-        # SINR 구함
-        sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-        # 샤논의 capacity formula
-        sv['rate'] = c.BW * math.log2(1 + sinr)
-        
-    # 3. 정규화 및 최적 SV 선택
-    max_rate = max(sv['rate'] for sv in sv_candidates)      # 후보들의 rate 중 최댓값 찾기
+    # 5. 정규화 및 최종 점수 계산(살아남은 후보끼리 경쟁)
+    # rate가 가장 높은 SV 찾기(분모 0 방지)
+    max_rate = max(sv['rate'] for sv in sv_candidates)
+    
+    best_sv_id = None
+    max_final_score = -1        ## 질문: 이걸 왜 -1로?
     
     for sv in sv_candidates:
-        # 가장 빠른 차를 1점으로 두고 나머지를 비율로 계산
-        sv['eff_score'] = sv['rate'] / max_rate if max_rate > 0 else 0  ## 질문: 문법
-        
-        # 최종 점수 계산
+        # 효율 점수(eff_score) 계산: 내 속도 / 1등 속도
+        if max_rate > 0:
+            sv['eff_score'] = sv['rate'] / max_rate
+        else:
+            sv['eff_score'] = 0
+            
+        # 최종 점수 = (속도 가중치 * 효율점수) + (방향 가중치 * 방향점수)
         sv['final_score'] = (c.WEIGHT_SV_RATE * sv['eff_score']) + (c.WEIGHT_SV_DIR * sv['dir_score'])
         
-    best_sv = max(sv_candidates, key=lambda x: x['final_score'])
-    
-    return best_sv['id']       # 최종 점수가 높은 차량의 id만 알려줌
+        # 최대 점수 갱신
+        if sv['final_score'] > max_final_score:
+            max_final_score = sv['final_score']
+            best_sv_id = sv['id']
+            
+    return best_sv_id
