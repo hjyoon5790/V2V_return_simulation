@@ -45,21 +45,15 @@ def calculate_cosine_similarity(v1_id, v2_id):
     return dot_product / magnitude_multi            # -1(정반대)에서 1(같은 방향)사이의 값
 
 """ 다른 TV들이 쏘는 전파가 내가 고르려는 SV에게 얼마나 잡음인지 계산(잠재 지연) """
-def get_total_interference(tv_id, sv_pos):
-    total_interf = 0        # 간섭을 더할 변수 초기화
-    all_vehicles = traci.vehicle.getIDList()
+def get_total_interference(sv_pos, other_tv_positions):
+    total_interf = 0
     
-    # 나(TV)를 제외한 다른 TV를 찾음
-    for other_v in all_vehicles:
-        if other_v != tv_id and traci.vehicle.getTypeID(other_v) == c.TYPE_TV:
-            # 다른 TV와 타겟 SV 사이의 거리 구함
-            other_pos = traci.vehicle.getPosition(other_v)
-            dist_to_sv = calulate_distance(other_pos, sv_pos)
-            
-            # 다른 TV가 SV에게 미치는 간섭을 계산해 누적
-            gain = calculate_channel_gain(dist_to_sv)
-            total_interf += (c.P_TX_TV * gain)
-    
+    # traci 통신 없이 밖에서 받아온 리스트만 반복
+    for other_pos in other_tv_positions:
+        dist = calulate_distance(other_pos, sv_pos)
+        gain = calculate_channel_gain(dist)
+        total_interf += (c.P_TX_TV * gain)
+        
     return total_interf
 
 """ TV를 위해 최적의 SV 선택하는 함수 """
@@ -75,43 +69,50 @@ def sv_selection(tv_id):
     # 2. 연산 시간(Comp Delay) 미리 계산
     t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
     
+    sv_list = []
+    other_tv_positions = []
+    
     # 3. 범위 내 SV 탐색 및 필터링 (Type & Distance & Delay)
     for v_id in all_vehicles:
         if v_id == tv_id:
             continue
-        if traci.vehicle.getTypeID(v_id) == c.TYPE_SV:
-            sv_pos = traci.vehicle.getPosition(v_id)
-            dist = calulate_distance(tv_pos, sv_pos)
-            
-            # (1) 통신 범위 확인
-            if dist <= c.ONE_HOP_LIMIT:
-                #SV 후보의 상세 정보 계산
-                cos_sim = calculate_cosine_similarity(tv_id, v_id)
-                dir_score = (cos_sim + 1) / 2
-                # 통신 속도(Rate) 계산
-                gain = calculate_channel_gain(dist)
-                interf = get_total_interference(tv_id, sv_pos)
-                sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-                rate = c.BW + math.log2(1 + sinr)   # Shannon Capacity
+        v_type = traci.vehicle.getTypeID(v_id)
+        if v_type == c.TYPE_TV:
+            other_tv_positions.append(traci.vehicle.getPosition(v_id))
+        elif v_type == c.TYPE_SV:
+            sv_list.append((v_id, traci.vehicle.getPosition(v_id)))
+    
+    for v_id, sv_pos in sv_list:
+        dist = calulate_distance(tv_pos, sv_pos)
+        # (1) 통신 범위 확인
+        if dist <= c.ONE_HOP_LIMIT:
+            #SV 후보의 상세 정보 계산
+            cos_sim = calculate_cosine_similarity(tv_id, v_id)
+            dir_score = (cos_sim + 1) / 2
+            # 통신 속도(Rate) 계산
+            gain = calculate_channel_gain(dist)
+            interf = get_total_interference(sv_pos, other_tv_positions)
+            sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
+            rate = c.BW * math.log2(1 + sinr)   # Shannon Capacity
                 
-                # (2) 지연 시간 조건 확인
-                if rate <=0:
-                    continue        # 통신 불가능하면 패스
+            # (2) 지연 시간 조건 확인
+            if rate <=0:
+                continue        # 통신 불가능하면 패스
                 
-                t_tx = task_bits / rate     # 전송 시간 = 데이터 크기/속도
-                t_off = t_tx + t_comp
+            t_tx = task_bits / rate     # 전송 시간 = 데이터 크기/속도
+            t_off = t_tx + t_comp
                 
-                # 최대 지연 허용 지연(1초)을 넘으면 후보 리스트에 넣지 않음(탈락!)
-                if t_off > c.MAX_LATENCY:
-                    continue
+            # 최대 지연 허용 지연(1초)을 넘으면 후보 리스트에 넣지 않음(탈락!)
+            if t_off > c.MAX_LATENCY:
+                continue
                 
-                # 조건 통과한 SV만 후보 리스트에 넣기
-                sv_candidates.append({
-                    'id': v_id,
-                    'rate': rate,
-                    'dir_score': dir_score,
-                    't_off': t_off      # 나중에 확인용으로 저장
-                })
+            # 조건 통과한 SV만 후보 리스트에 넣기
+            sv_candidates.append({
+                'id': v_id,
+                'rate': rate,
+                'dir_score': dir_score,
+                't_off': t_off      # 나중에 확인용으로 저장
+            })
                 
     # 4. 후보 없음: 1-hop 이내에 차량 없음 + 딜레이 제약
     if not sv_candidates:
@@ -123,7 +124,7 @@ def sv_selection(tv_id):
     max_rate = max(sv['rate'] for sv in sv_candidates)
     
     best_sv_id = None
-    max_final_score = -1        ## 질문: 이걸 왜 -1로?
+    max_final_score = -1        ## 절대 나올 수 없는 점수인 -1로 초기화(최대 점수 갱신용)
     
     for sv in sv_candidates:
         # 효율 점수(eff_score) 계산: 내 속도 / 1등 속도
