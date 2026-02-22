@@ -5,57 +5,45 @@ import utils
 import algorithm as alg
 import utils_graph as ug
 
-def run_simulation():
-    # 1. 시뮬레이션 환경 켜기
-    env.start_sumo()
-    
-    # 2. 차량 소환
-    utils.spawn_vehicles()
+def run_single_simulation(density):
+    env.start_sumo()        # 1. 시뮬레이션 환경 켜기
+    utils.spawn_vehicles(density)   # 2. 해당 밀도로 차량 소환
     
     step = 0
-    history_step = []
-    history_sv_success = []
-    history_sv_fail = []
+    total_requests = 0      # 전체 요청 횟수
+    success_count = 0       # 성공 횟수
     
     # 3. 메인 루프
     while traci.simulation.getMinExpectedNumber() > 0:
-        traci.simulationStep()
+        traci.simulationStep()      # 1초 진행
         step += 1
         
-        # 이번 스텝(현재 1초) 동안의 성공/실패율 셀카운터 준비
-        current_step_success = 0
-        current_step_fail = 0
-        
-        # 도로 위 모든 차량 검색
-        all_vehicles = traci.vehicle.getIDList()
-        for v_id in all_vehicles:
+        if step > 200 and step % 5 == 0:
+            all_vehicles = traci.vehicle.getIDList()
+            for v_id in all_vehicles:
             # TV를 발견하면 알고리즘 실행
-            if traci.vehicle.getTypeID(v_id) == c.TYPE_TV:
-                selected_sv = alg.sv_selection(v_id)
-                
-                if selected_sv:
-                    current_step_success += 1
-                    # print(f"[Stpe {step}] TV({v_id})가 최적의 SV({selected_sv})를 찾았습니다!")
-                else:
-                    current_step_fail += 1
-                    # print(f"🚨[Step {step}] TV({v_id})는 주변에 조건이 맞는 SV가 없습니다!")
-        
-        # 모든 차량 검사가 끝나면 이번 스텝의 결과를 리스트에 저장
-        history_step.append(step)
-        history_sv_success.append(current_step_success)
-        history_sv_fail.append(current_step_fail)
-        
-        # 테스트용이므로 400초까지만 돌리고 강제 종료
-        if step > 400:
-            print("400초 도달. 시뮬레이션 중단.")
-            break
-        
+                if traci.vehicle.getTypeID(v_id) == c.TYPE_TV:      # TV 찾으면
+                    total_requests += 1     # 요청 시도 횟수 증가
+                    if alg.sv_selection(v_id):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
+                        success_count += 1      # 성공 시 횟수 증가
+        if step > 500:
+            break       # 실험은 500초까지만 진행
     # 4. 환경 끄기
     env.close_sumo()
     
-    # 5. 시뮬레이션 끝난 후 모아둔 데이터 그래프 그리기
-    print("📊 시뮬레이션 종료. 결과를 바탕으로 그래프를 생성...")
-    ug.plot_sv_selection_stats(history_step, history_sv_success, history_sv_fail)
+    # 5. 성공률 계산(0으로 나누기 방지)
+    success_rate = ((success_count / total_requests) * 100) if total_requests > 0 else 0
+    return success_rate
     
 if __name__ == "__main__":
-    run_simulation()
+    final_rates = []        # 각 밀도별 성공률을 담을 리스트
+    
+    # constant.py에 정의된 density 리스트를 하나씩 꺼내 반복
+    for d in c.TV_DENSITY_LIST:
+        print(f"--- 현재 TV 밀도 {d} 실험 중 ---")
+        rate = run_single_simulation(d)     # 시뮬레이션 실행
+        final_rates.append(rate)        # 결과 저장
+        print(f"결과: 성공률 {rate:.2f}%")
+        
+    # 모든 밀도 실험이 끝나면 최종 그래프 그리기
+    ug.plot_success_rate_by_density(c.TV_DENSITY_LIST, final_rates)

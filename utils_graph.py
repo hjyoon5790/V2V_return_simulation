@@ -1,6 +1,18 @@
 import matplotlib.pyplot as plt
 
-"""SV 선택 성공/실패 횟수와 성공률을 시각화하는 함수"""
+''' 밀도에 따른 성공률 그래프 함수 '''
+def plot_success_rate_by_density(densities, rates):
+    plt.figure(figsize=(8, 5))
+    plt.plot(densities, rates, marker='s', color='darkblue', linestyle='-', linewidth=2)
+    plt.title("SV Selection Success Rate by TV Density")
+    plt.xlabel("TV Density (Ratio of TVs in network)")
+    plt.ylabel("Success Rate (%)")
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 105)
+    plt.show()
+
+
+""" 시간에 따른 SV 선택 성공/실패 횟수와 성공률을 시각화하는 함수 """
 def plot_sv_selection_stats(steps, sv_successes, sv_failures):
     # SV 선택 성공률 계산
     sv_rates = []

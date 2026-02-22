@@ -2,17 +2,13 @@ import traci
 import constant as c
 
 ''' TV와 SV 비율에 맞춰 차량 맵에 소환 '''
-def spawn_vehicles():
+def spawn_vehicles(density):
     # 1. 소환할 차량 대수 계산
-    num_tv = int(c.TOTAL_VEHICLES * c.CURRENT_TV_DENSITY)
+    num_tv = int(c.TOTAL_VEHICLES * density)
     num_sv = c.TOTAL_VEHICLES - num_tv
     
     # 2. 현재 맵에 존재하는 경로 이름 가져오기 -> 차가 다닐 경로가 반드시 있어야 함.
     route_list = traci.route.getIDList()
-    if len(route_list) == 0:
-        print("🚨에러: 맵에 설정된 경로(ROUTE)가 전혀 없습니다!")
-        return
-    # 첫 번째 경로 선택
     valid_route = route_list[0]
     
     # SUMO의 기본 차종을 복사해 TV라는 새로운 차종 만들고 빨간색으로 칠함

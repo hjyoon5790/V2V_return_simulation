@@ -92,7 +92,7 @@ def sv_selection(tv_id):
                 gain = calculate_channel_gain(dist)
                 interf = get_total_interference(tv_id, sv_pos)
                 sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-                rate = c.BW + math.log2(1 + sinr)   # Shannon Capacity
+                rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0   # Shannon Capacity
                 
                 # (2) 지연 시간 조건 확인
                 if rate <=0:
@@ -102,16 +102,8 @@ def sv_selection(tv_id):
                 t_off = t_tx + t_comp
                 
                 # 최대 지연 허용 지연(1초)을 넘으면 후보 리스트에 넣지 않음(탈락!)
-                if t_off > c.MAX_LATENCY:
-                    continue
-                
-                # 조건 통과한 SV만 후보 리스트에 넣기
-                sv_candidates.append({
-                    'id': v_id,
-                    'rate': rate,
-                    'dir_score': dir_score,
-                    't_off': t_off      # 나중에 확인용으로 저장
-                })
+                if t_off <= c.MAX_LATENCY:
+                    sv_candidates.append({'id': v_id, 'rate': rate, 'dir_score': dir_score})
                 
     # 4. 후보 없음: 1-hop 이내에 차량 없음 + 딜레이 제약
     if not sv_candidates:
@@ -123,17 +115,12 @@ def sv_selection(tv_id):
     max_rate = max(sv['rate'] for sv in sv_candidates)
     
     best_sv_id = None
-    max_final_score = -1        ## 질문: 이걸 왜 -1로?
+    max_final_score = -1        ## 최고 점수를 찾기 위해 가장 낮은 값으로 초기화
     
     for sv in sv_candidates:
-        # 효율 점수(eff_score) 계산: 내 속도 / 1등 속도
-        if max_rate > 0:
-            sv['eff_score'] = sv['rate'] / max_rate
-        else:
-            sv['eff_score'] = 0
-            
+        eff_score = sv['rate'] / max_rate if max_rate > 0 else 0    # 속도 정규화 점수
         # 최종 점수 = (속도 가중치 * 효율점수) + (방향 가중치 * 방향점수)
-        sv['final_score'] = (c.WEIGHT_SV_RATE * sv['eff_score']) + (c.WEIGHT_SV_DIR * sv['dir_score'])
+        sv['final_score'] = (c.WEIGHT_SV_RATE * eff_score) + (c.WEIGHT_SV_DIR * sv['dir_score'])
         
         # 최대 점수 갱신
         if sv['final_score'] > max_final_score:
