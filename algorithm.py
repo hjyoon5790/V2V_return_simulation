@@ -128,3 +128,42 @@ def sv_selection(tv_id):
             best_sv_id = sv['id']
             
     return best_sv_id
+
+""" [비교 스킴1] distance-based greedy """
+def sv_selection_distance_greedy(tv_id):
+    tv_pos = traci.vehicle.getPosition(tv_id)   # 현재 TV 위치 가져오기
+    all_vehicles = traci.vehicle.getIDList()    # 모든 차량 목록
+        
+    best_sv_id = None
+    min_dist = float('inf')     # 가장 짧은 거리를 찾기 위해 무한대로 초기화
+    
+    task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
+    task_bits = task_mbits * (10**6)
+    t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
+        
+    for v_id in all_vehicles:
+        if v_id == tv_id:
+            continue            # 나 자신은 제외
+            
+        # 차량 타입이 SV인 경우만 확인
+        if traci.vehicle.getTypeID(v_id) == c.TYPE_SV:
+            sv_pos = traci.vehicle.getPosition(v_id)
+            dist = calulate_distance(tv_pos, sv_pos)    # 거리 계산
+                
+            # 1-hop 범위 안에 있고 지금까지 찾은 거리보다 가깝다면 갱신
+            if dist <= c.ONE_HOP_LIMIT:
+                gain = calculate_channel_gain(dist)
+                interf = get_total_interference(tv_id, sv_pos)
+                sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
+                rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0
+                
+                if rate > 0:
+                    t_tx = task_bits / rate
+                    t_off = t_tx + t_comp
+                    # 지연 시간이 1초 이내인 SV 중에서만 거리 비교
+                    if t_off <= c.MAX_LATENCY:
+                        if dist < min_dist:
+                            min_dist = dist
+                            best_sv_id = v_id
+                    
+    return best_sv_id

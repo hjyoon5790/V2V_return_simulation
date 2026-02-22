@@ -1,15 +1,26 @@
 import matplotlib.pyplot as plt
 
 ''' 밀도에 따른 성공률 그래프 함수 '''
-def plot_success_rate_by_density(densities, rates):
-    plt.figure(figsize=(8, 5))
-    plt.plot(densities, rates, marker='s', color='darkblue', linestyle='-', linewidth=2)
-    plt.title("SV Selection Success Rate by TV Density")
-    plt.xlabel("TV Density (Ratio of TVs in network)")
-    plt.ylabel("Success Rate (%)")
-    plt.grid(True, alpha=0.3)
-    plt.ylim(0, 105)
-    plt.show()
+def plot_success_rate_by_density(densities, proposed_rates, greedy_rates):
+    # 1. 그림판 크기 설정
+    plt.figure(figsize=(10, 6))
+    
+    # 2. 내 알고리즘 그래프 (파란색, 네모 점) -> 색상과 마커를 다르게 표시
+    plt.plot(densities, proposed_rates, marker='s', color='blue',
+             linestyle='-', linewidth=2, label='Proposed Scheme (SINR+Dir)')
+    
+    # 3. 비교 스킴1: distance-based greedy 그래프 (빨간색, 엑스 점) -> 색상과 마커를 다르게 표시
+    plt.plot(densities, greedy_rates, marker='x', color='red',
+             linestyle='--', linewidth=2, label='Distance-based Greedy')
+    
+    # 4. 그래프 제목과 축 이름
+    plt.title("SV Selection Success Rate Comparision by TV Density", fontsize=14)
+    plt.xlabel("TV Density (Ratio of TVs in network)", fontsize=12)
+    plt.ylabel("Success Rate (%)", fontsize=12)
+    plt.grid(True, alpha=0.3)       # 5. 모눈종이 격자 켜기(켜기, 투명도)
+    plt.ylim(0, 105)                # 6. Y축 범위 (0% ~ 100%)
+    plt.legend()                    # 7. 범례 표시 (어떤 선이 어떤 알고리즘인지 설명창 띄우기)
+    plt.show()                      # 8. 그래프 출력
 
 
 """ 시간에 따른 SV 선택 성공/실패 횟수와 성공률을 시각화하는 함수 """

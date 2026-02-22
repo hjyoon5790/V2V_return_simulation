@@ -29,13 +29,13 @@ WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중
 # 3. [VARIABLE] 실험 파라미터 (그래프 추출 시 수정)
 
 # --- 실험 1: 데이터 크기 및 리턴 비율 ---
-TASK_MIN_MBITS = 2.0             # 최소 2 Mbits
-TASK_MAX_MBITS = 4.0             # 최소 4 Mbits
+TASK_MIN_MBITS = 0.5             # 최소 0.5 Mbits
+TASK_MAX_MBITS = 1.5             # 최소 1.5 Mbits
 ALPHA = 0.3                      # 리턴 데이터 비율 (0.1 ~ 1.0 가변) -> 실험 시 사용할 디폴트 값
 ALPHA_X_AXIS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]       # 그래프 그릴 때 사용
 
 # --- 실험 2: 환경 배치 및 밀도 ---
-TOTAL_VEHICLES = 100            # 총 차량 수는 고정
+TOTAL_VEHICLES = 300            # 총 차량 수는 고정
 TV_DENSITY_LIST = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] # x축: 전체 중 TV가 차지하는 비율
 CURRENT_TV_DENSITY = 0.8        # 현재 실험값
 
