@@ -4,58 +4,68 @@ import environment as env
 import utils
 import algorithm as alg
 import utils_graph as ug
+import matplotlib as plt
 
-def run_simulation():
+def run_single_simulation(tv_ratio):
     # 1. 시뮬레이션 환경 켜기
-    env.start_sumo()
-    
+    env.start_sumo()    
     # 2. 차량 소환
-    utils.spawn_vehicles()
+    utils.spawn_vehicles(total_count=c.TOTAL_VEHICLES, ratio=tv_ratio)
     
     step = 0
-    history_step = []
-    history_sv_success = []
-    history_sv_fail = []
+    total_sv_success = 0
+    total_sv_requests = 0
     
     # 3. 메인 루프
     while traci.simulation.getMinExpectedNumber() > 0:
         traci.simulationStep()
         step += 1
-        
-        # 이번 스텝(현재 1초) 동안의 성공/실패율 셀카운터 준비
-        current_step_success = 0
-        current_step_fail = 0
+        if step < 200: continue
         
         # 도로 위 모든 차량 검색
-        all_vehicles = traci.vehicle.getIDList()
-        for v_id in all_vehicles:
+        all_v = traci.vehicle.getIDList()
+        sv_info_list = []
+        other_tv_positions = []
+        tv_tasks = []   # (id, info_dict) 리스트
+        
+        for v_id in all_v:
+            v_type = traci.vehicle.getTypeID(v_id)
+            v_data = {
+                'pos': traci.vehicle.getPosition(v_id),
+                'speed': traci.vehicle.getSpeed(v_id),
+                'angle': traci.vehicle.getAngle(v_id)
+            }
+            
+            if v_type == c.TYPE_TV:
+                other_tv_positions.append(v_data['pos'])
+                tv_tasks.append((v_id, v_data))
+            elif v_type == c.TYPE_SV:
+                sv_info_list.append((v_id, v_data))
+        
+        for tv_id, tv_info in tv_tasks:
             # TV를 발견하면 알고리즘 실행
-            if traci.vehicle.getTypeID(v_id) == c.TYPE_TV:
-                selected_sv = alg.sv_selection(v_id)
-                
-                if selected_sv:
-                    current_step_success += 1
-                    # print(f"[Stpe {step}] TV({v_id})가 최적의 SV({selected_sv})를 찾았습니다!")
-                else:
-                    current_step_fail += 1
-                    # print(f"🚨[Step {step}] TV({v_id})는 주변에 조건이 맞는 SV가 없습니다!")
-        
-        # 모든 차량 검사가 끝나면 이번 스텝의 결과를 리스트에 저장
-        history_step.append(step)
-        history_sv_success.append(current_step_success)
-        history_sv_fail.append(current_step_fail)
-        
-        # 테스트용이므로 1000초까지만 돌리고 강제 종료
-        if step > 1000:
-            print("1000초 도달. 시뮬레이션 중단.")
+            selected_sv = alg.sv_selection(tv_id, tv_info, sv_info_list, other_tv_positions)
+            total_sv_requests += 1
+            if selected_sv: total_sv_success += 1    
+        if step > 600:
+            print("600초 도달. 시뮬레이션 중단.")
             break
         
     # 4. 환경 끄기
     env.close_sumo()
-    
-    # 5. 시뮬레이션 끝난 후 모아둔 데이터 그래프 그리기
-    print("📊 시뮬레이션 종료. 결과를 바탕으로 그래프를 생성...")
-    ug.plot_sv_selection_stats(history_step, history_sv_success, history_sv_fail)
+    return (total_sv_success / total_sv_requests * 100) if total_sv_requests > 0 else 0
     
 if __name__ == "__main__":
-    run_simulation()
+    final_results = []
+    iterations = 5      # 각 비율당 5번씩 테스트해서 평균 내기
+    
+    for ratio in c.TV_DENSITY_LIST:
+        print(f"--- Processing TV Ratio: {int(ratio*100)} ---")
+        temp_rates = []
+        for i in range(iterations):
+            rate = run_single_simulation(ratio)
+            temp_rates.append(rate)
+        avg_rate = sum(temp_rates)  / iterations
+        final_results.append(avg_rate)
+        print(f"평균 성공률: {avg_rate:.2f}%")
+    ug.plot_tv_ratio_performance(c.TV_DENSITY_LIST, final_results)

@@ -17,20 +17,18 @@ def calculate_channel_gain(distance):
     return (c.WAVELENGTH / (4 * math.pi * distance)) ** c.PATH_LOSS_EXP
 
 """ 두 차량의 방향 유사도 구하는 함수(코사인 유사도 이용) """
-def calculate_cosine_similarity(v1_id, v2_id):
+def calculate_cosine_similarity(v1_data, v2_data):
     # 차량의 속력(speed)과 방향(angle) 가져옴
-    speed1 = traci.vehicle.getSpeed(v1_id)
-    angle1 = traci.vehicle.getAngle(v1_id)
-    speed2 = traci.vehicle.getSpeed(v2_id)
-    angle2 = traci.vehicle.getAngle(v2_id)
+    speed1, angle1 = v1_data['speed'], v1_data['angle']
+    speed2, angle2 = v2_data['speed'], v2_data['angle']
+
     
     # 두 차량 중 하나가 정차(속도 = 0) 중이면 유사도 0 (분모 0 방지)
     if speed1 == 0 or speed2 == 0:
         return 0.0
     
     # SUMO의 각도(Angle)를 Radian으로 단위 변환(파이썬이 알아듣도록)
-    rad1 = math.radians(angle1)
-    rad2 = math.radians(angle2)
+    rad1, rad2 = math.radians(angle1), math.radians(angle2)
     
     # 속력과 각도를 이용해 x축, y축 방향의 벡터(화살표) 길이 구함
     v1_x = speed1 * math.sin(rad1)
@@ -57,41 +55,29 @@ def get_total_interference(sv_pos, other_tv_positions):
     return total_interf
 
 """ TV를 위해 최적의 SV 선택하는 함수 """
-def sv_selection(tv_id):
-    tv_pos = traci.vehicle.getPosition(tv_id)
+def sv_selection(tv_id, tv_info, sv_info_list, other_tv_positions):
     sv_candidates = []
-    all_vehicles = traci.vehicle.getIDList()
+    tv_pos = tv_info['pos']
     
     # 1. 이번 TV의 랜덤 task 크기 생성 (2~4 Mbits)
-    task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
-    task_bits = task_mbits * (10**6)    # 비트 단위로 변환
-    
+    task_bits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS) * (10**6)    # 비트 단위로 변환
     # 2. 연산 시간(Comp Delay) 미리 계산
     t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
     
-    sv_list = []
-    other_tv_positions = []
-    
+    # 간섭 계산 시 자기 자신 제거
+    filtered_interf_positions = [pos for pos in other_tv_positions if pos != tv_pos]
     # 3. 범위 내 SV 탐색 및 필터링 (Type & Distance & Delay)
-    for v_id in all_vehicles:
-        if v_id == tv_id:
-            continue
-        v_type = traci.vehicle.getTypeID(v_id)
-        if v_type == c.TYPE_TV:
-            other_tv_positions.append(traci.vehicle.getPosition(v_id))
-        elif v_type == c.TYPE_SV:
-            sv_list.append((v_id, traci.vehicle.getPosition(v_id)))
-    
-    for v_id, sv_pos in sv_list:
+    for sv_id, sv_info in sv_info_list:
+        sv_pos = sv_info['pos']
         dist = calulate_distance(tv_pos, sv_pos)
         # (1) 통신 범위 확인
         if dist <= c.ONE_HOP_LIMIT:
             #SV 후보의 상세 정보 계산
-            cos_sim = calculate_cosine_similarity(tv_id, v_id)
+            cos_sim = calculate_cosine_similarity(tv_info, sv_info)
             dir_score = (cos_sim + 1) / 2
             # 통신 속도(Rate) 계산
             gain = calculate_channel_gain(dist)
-            interf = get_total_interference(sv_pos, other_tv_positions)
+            interf = get_total_interference(sv_pos, filtered_interf_positions)
             sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
             rate = c.BW * math.log2(1 + sinr)   # Shannon Capacity
                 
@@ -103,12 +89,9 @@ def sv_selection(tv_id):
             t_off = t_tx + t_comp
                 
             # 최대 지연 허용 지연(1초)을 넘으면 후보 리스트에 넣지 않음(탈락!)
-            if t_off > c.MAX_LATENCY:
-                continue
-                
-            # 조건 통과한 SV만 후보 리스트에 넣기
-            sv_candidates.append({
-                'id': v_id,
+            if t_off <= c.MAX_LATENCY:
+                sv_candidates.append({
+                'id': sv_id,
                 'rate': rate,
                 'dir_score': dir_score,
                 't_off': t_off      # 나중에 확인용으로 저장
@@ -122,23 +105,15 @@ def sv_selection(tv_id):
     # 5. 정규화 및 최종 점수 계산(살아남은 후보끼리 경쟁)
     # rate가 가장 높은 SV 찾기(분모 0 방지)
     max_rate = max(sv['rate'] for sv in sv_candidates)
-    
     best_sv_id = None
-    max_final_score = -1        ## 절대 나올 수 없는 점수인 -1로 초기화(최대 점수 갱신용)
+    max_final_score = -1        ## 절대 나올 수 없는 점수인 -1로 초기화(최대 점수)
     
     for sv in sv_candidates:
         # 효율 점수(eff_score) 계산: 내 속도 / 1등 속도
-        if max_rate > 0:
-            sv['eff_score'] = sv['rate'] / max_rate
-        else:
-            sv['eff_score'] = 0
-            
-        # 최종 점수 = (속도 가중치 * 효율점수) + (방향 가중치 * 방향점수)
-        sv['final_score'] = (c.WEIGHT_SV_RATE * sv['eff_score']) + (c.WEIGHT_SV_DIR * sv['dir_score'])
-        
-        # 최대 점수 갱신
-        if sv['final_score'] > max_final_score:
-            max_final_score = sv['final_score']
+        eff_score = sv['rate'] / max_rate if max_rate > 0 else 0
+        final_score = (c.WEIGHT_SV_RATE * eff_score) + (c.WEIGHT_SV_DIR * sv['dir_score'])
+        if final_score > max_final_score:
+            max_final_score = final_score
             best_sv_id = sv['id']
             
     return best_sv_id

@@ -2,10 +2,11 @@ import traci
 import constant as c
 
 ''' TV와 SV 비율에 맞춰 차량 맵에 소환 '''
-def spawn_vehicles():
+def spawn_vehicles(total_count, ratio):
     # 1. 소환할 차량 대수 계산
-    num_tv = int(c.TOTAL_VEHICLES * c.CURRENT_TV_DENSITY)
-    num_sv = c.TOTAL_VEHICLES - num_tv
+    # num_tv = int(c.TOTAL_VEHICLES * c.CURRENT_TV_DENSITY)
+    num_tv = int(total_count * ratio)
+    num_sv = total_count - num_tv
     
     # 2. 현재 맵에 존재하는 경로 이름 가져오기 -> 차가 다닐 경로가 반드시 있어야 함.
     route_list = traci.route.getIDList()
@@ -26,10 +27,10 @@ def spawn_vehicles():
     
     # 3. TV 소환
     for i in range(num_tv):
-        traci.vehicle.add(f"tv_{i}", valid_route, typeID=c.TYPE_TV)     ## 질문: 문법
+        traci.vehicle.add(f"tv_{i}", valid_route, typeID=c.TYPE_TV, depart="now")     ## 질문: 문법
     
     # 4. SV 소환
     for i in range(num_sv):
-        traci.vehicle.add(f"sv_{i}", valid_route, typeID=c.TYPE_SV)
+        traci.vehicle.add(f"sv_{i}", valid_route, typeID=c.TYPE_SV, depart="now")
         
     print(f"차량 세팅 완료! [TV: {num_tv}대 | SV: {num_sv}대]")

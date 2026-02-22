@@ -32,3 +32,12 @@ def plot_sv_selection_stats(steps, sv_successes, sv_failures):
     
     plt.tight_layout()      # 두 그래프가 겹치거나 글씨가 잘리지 않도록 알아서 여백 조정하는 함수
     plt.show()
+    
+def plot_tv_ratio_performance(ratios, success_rates):
+    plt.figure(figsize=(8,5))
+    plt.plot(ratios, success_rates, marker='o', linestyle='-', color='teal')
+    plt.title("System Performance by TV Ratio")
+    plt.xlabel("TV Ratio (TV / Total)")
+    plt.ylabel("Overall Success Rate (%)")
+    plt.grid(True)
+    plt.show()
