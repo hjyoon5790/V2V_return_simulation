@@ -14,17 +14,26 @@ def run_single_simulation(density):
     success_proposed = 0       # 성공 횟수
     success_greedy = 0          # distance-based greedy 성공 횟수
     
+    vehicle_type_cache = {}     # 차량 타입을 저장해둘 딕셔너리
+    
     # 3. 메인 루프
     while traci.simulation.getMinExpectedNumber() > 0:
         traci.simulationStep()      # 1초 진행
         step += 1
         
-        if 200 <= step <= 500 and step % 5 == 0:
+        if 500 <= step <= 750 and step % 10 == 0:
             all_vehicles = traci.vehicle.getIDList()
+            # --- [디버깅] 50스텝마다 현재 맵에 차가 몇 대인지 출력 ---
+            if step % 50 == 0:
+                print(f" [Step {step}] 맵 위 차량: {len(all_vehicles)}대 (목표: {c.TOTAL_VEHICLES}대)")
+            # --------------------------------------------------------
+            
             for v_id in all_vehicles:
             # TV를 발견하면 알고리즘 실행
-                if traci.vehicle.getTypeID(v_id) == c.TYPE_TV:      # TV 찾으면
-                    total_requests += 1     # 요청 시도 횟수 증가
+                if v_id not in vehicle_type_cache:          # 딕셔너리에 없는 차(새로 들어온 차)만 Traci에 물어봄
+                    vehicle_type_cache[v_id] = traci.vehicle.getTypeID(v_id)
+                if vehicle_type_cache[v_id] == c.TYPE_TV:   # 저장된 캐시에서 타입 확인
+                    total_requests += 1
                     
                     # 내 알고리즘 실행 및 결과 기록
                     if alg.sv_selection(v_id):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
@@ -32,11 +41,14 @@ def run_single_simulation(density):
                     if alg.sv_selection_distance_greedy(v_id):
                         success_greedy += 1
                         
-        if step > 500:
-            break       # 실험은 500초까지만 진행
+        if step > 750:
+            break       # 실험은 1200초까지만 진행
     # 4. 환경 끄기
     env.close_sumo()
     
+    # --- [디버깅] 실제 몇 번 요청이 잇었고 성공했는지 출력 ---
+    print(f"  >[결과] 총 TV 요청 횟수: {total_requests}번")
+    print(f"  >[결과] Proposed 성공: {success_proposed}번 | Greedy 성공: {success_greedy}번")
     # 5. 성공률 계산(0으로 나누기 방지)
     rate_proposed = ((success_proposed / total_requests) * 100) if total_requests > 0 else 0
     rate_greedy = ((success_greedy / total_requests) * 100) if total_requests > 0 else 0
@@ -54,6 +66,7 @@ if __name__ == "__main__":
         
         proposed_rates.append(p_rate)
         greedy_rates.append(g_rate)
+        
         print(f"Proposed: {p_rate:.2f}% | Greedy: {g_rate:.2f}%")
         
     # 모든 밀도 실험이 끝나면 최종 그래프 그리기
