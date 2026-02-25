@@ -133,10 +133,7 @@ def sv_selection_distance_greedy(tv_id, step_info):
     best_sv_id = None
     min_dist = float('inf')     # 가장 짧은 거리를 찾기 위해 무한대로 초기화
     
-    task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
-    task_bits = task_mbits * (10**6)
-    t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
-        
+    # 1. 거리만 보고 가까운 SV 뽑음    
     for v_id, info in step_info.items():
         if v_id == tv_id:
             continue            # 나 자신은 제외
@@ -148,18 +145,28 @@ def sv_selection_distance_greedy(tv_id, step_info):
                 
             # 1-hop 범위 안에 있고 지금까지 찾은 거리보다 가깝다면 갱신
             if dist <= c.ONE_HOP_LIMIT:
-                gain = calculate_channel_gain(dist)
-                interf = get_total_interference(tv_id, sv_pos, step_info)
-                sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-                rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0
+                if dist < min_dist:
+                    min_dist = dist
+                    best_sv_id = v_id
+    if best_sv_id is None:              # 반경 내 SV가 아예 없으면 실패
+        return None
+    
+    # 검증: 가장 가까워서 뽑았는데 시간 제약 내에 가능한지 평가
+    task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
+    task_bits = task_mbits * (10**6)
+    t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
+    
+    sv_pos = step_info[best_sv_id]['pos']
+    dist = calulate_distance(tv_pos, sv_pos)
+    
+    gain = calculate_channel_gain(dist)
+    interf = get_total_interference(tv_id, sv_pos, step_info)
+    sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
+    rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0
                 
-                if rate > 0:
-                    t_tx = task_bits / rate
-                    t_off = t_tx + t_comp
-                    # 지연 시간이 1초 이내인 SV 중에서만 거리 비교
-                    if t_off <= c.MAX_LATENCY:
-                        if dist < min_dist:
-                            min_dist = dist
-                            best_sv_id = v_id
-                    
-    return best_sv_id
+    if rate > 0:
+        t_tx = task_bits / rate
+        t_off = t_tx + t_comp
+        if t_off <= c.MAX_LATENCY:
+            return best_sv_id
+    return None     # 1초 넘겼으니 실패
