@@ -17,12 +17,12 @@ def calculate_channel_gain(distance):
     return (c.WAVELENGTH / (4 * math.pi * distance)) ** c.PATH_LOSS_EXP
 
 """ 두 차량의 방향 유사도 구하는 함수(코사인 유사도 이용) """
-def calculate_cosine_similarity(v1_id, v2_id):
+def calculate_cosine_similarity(tv_id, v_id, step_info):
     # 차량의 속력(speed)과 방향(angle) 가져옴
-    speed1 = traci.vehicle.getSpeed(v1_id)
-    angle1 = traci.vehicle.getAngle(v1_id)
-    speed2 = traci.vehicle.getSpeed(v2_id)
-    angle2 = traci.vehicle.getAngle(v2_id)
+    speed1 = step_info[tv_id]['speed']
+    angle1 = step_info[tv_id]['angle']
+    speed2 = step_info[v_id]['speed']
+    angle2 = step_info[v_id]['angle']
     
     # 두 차량 중 하나가 정차(속도 = 0) 중이면 유사도 0 (분모 0 방지)
     if speed1 == 0 or speed2 == 0:
@@ -45,15 +45,14 @@ def calculate_cosine_similarity(v1_id, v2_id):
     return dot_product / magnitude_multi            # -1(정반대)에서 1(같은 방향)사이의 값
 
 """ 다른 TV들이 쏘는 전파가 내가 고르려는 SV에게 얼마나 잡음인지 계산(잠재 지연) """
-def get_total_interference(tv_id, sv_pos):
+def get_total_interference(tv_id, sv_pos, step_info):
     total_interf = 0        # 간섭을 더할 변수 초기화
-    all_vehicles = traci.vehicle.getIDList()
     
     # 나(TV)를 제외한 다른 TV를 찾음
-    for other_v in all_vehicles:
-        if other_v != tv_id and traci.vehicle.getTypeID(other_v) == c.TYPE_TV:
+    for other_v, info in step_info.items():
+        if other_v != tv_id and info['type'] == c.TYPE_TV:
             # 다른 TV와 타겟 SV 사이의 거리 구함
-            other_pos = traci.vehicle.getPosition(other_v)
+            other_pos = info['pos']
             dist_to_sv = calulate_distance(other_pos, sv_pos)
             
             # 다른 TV가 SV에게 미치는 간섭을 계산해 누적
@@ -63,10 +62,9 @@ def get_total_interference(tv_id, sv_pos):
     return total_interf
 
 """ TV를 위해 최적의 SV 선택하는 함수 """
-def sv_selection(tv_id):
-    tv_pos = traci.vehicle.getPosition(tv_id)
+def sv_selection(tv_id, step_info):
+    tv_pos = step_info[tv_id]['pos']
     sv_candidates = []
-    all_vehicles = traci.vehicle.getIDList()
     
     # 1. 이번 TV의 랜덤 task 크기 생성 (2~4 Mbits)
     task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
@@ -76,21 +74,21 @@ def sv_selection(tv_id):
     t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
     
     # 3. 범위 내 SV 탐색 및 필터링 (Type & Distance & Delay)
-    for v_id in all_vehicles:
+    for v_id, info in step_info.items():
         if v_id == tv_id:
             continue
-        if traci.vehicle.getTypeID(v_id) == c.TYPE_SV:
-            sv_pos = traci.vehicle.getPosition(v_id)
+        if info['type'] == c.TYPE_SV:
+            sv_pos = info['pos']
             dist = calulate_distance(tv_pos, sv_pos)
             
             # (1) 통신 범위 확인
             if dist <= c.ONE_HOP_LIMIT:
                 #SV 후보의 상세 정보 계산
-                cos_sim = calculate_cosine_similarity(tv_id, v_id)
+                cos_sim = calculate_cosine_similarity(tv_id, v_id, step_info)
                 dir_score = (cos_sim + 1) / 2
                 # 통신 속도(Rate) 계산
                 gain = calculate_channel_gain(dist)
-                interf = get_total_interference(tv_id, sv_pos)
+                interf = get_total_interference(tv_id, sv_pos, step_info)
                 sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
                 rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0   # Shannon Capacity
                 
@@ -113,7 +111,6 @@ def sv_selection(tv_id):
     # 5. 정규화 및 최종 점수 계산(살아남은 후보끼리 경쟁)
     # rate가 가장 높은 SV 찾기(분모 0 방지)
     max_rate = max(sv['rate'] for sv in sv_candidates)
-    
     best_sv_id = None
     max_final_score = -1        ## 최고 점수를 찾기 위해 가장 낮은 값으로 초기화
     
@@ -130,9 +127,8 @@ def sv_selection(tv_id):
     return best_sv_id
 
 """ [비교 스킴1] distance-based greedy """
-def sv_selection_distance_greedy(tv_id):
-    tv_pos = traci.vehicle.getPosition(tv_id)   # 현재 TV 위치 가져오기
-    all_vehicles = traci.vehicle.getIDList()    # 모든 차량 목록
+def sv_selection_distance_greedy(tv_id, step_info):
+    tv_pos = step_info[tv_id]['pos']   # 현재 TV 위치 가져오기
         
     best_sv_id = None
     min_dist = float('inf')     # 가장 짧은 거리를 찾기 위해 무한대로 초기화
@@ -141,19 +137,19 @@ def sv_selection_distance_greedy(tv_id):
     task_bits = task_mbits * (10**6)
     t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
         
-    for v_id in all_vehicles:
+    for v_id, info in step_info.items():
         if v_id == tv_id:
             continue            # 나 자신은 제외
             
         # 차량 타입이 SV인 경우만 확인
-        if traci.vehicle.getTypeID(v_id) == c.TYPE_SV:
-            sv_pos = traci.vehicle.getPosition(v_id)
+        if info['type'] == c.TYPE_SV:
+            sv_pos = info['pos']
             dist = calulate_distance(tv_pos, sv_pos)    # 거리 계산
                 
             # 1-hop 범위 안에 있고 지금까지 찾은 거리보다 가깝다면 갱신
             if dist <= c.ONE_HOP_LIMIT:
                 gain = calculate_channel_gain(dist)
-                interf = get_total_interference(tv_id, sv_pos)
+                interf = get_total_interference(tv_id, sv_pos, step_info)
                 sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
                 rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0
                 

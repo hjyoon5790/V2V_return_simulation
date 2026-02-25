@@ -21,28 +21,36 @@ def run_single_simulation(density):
         traci.simulationStep()      # 1초 진행
         step += 1
         
-        if 500 <= step <= 750 and step % 10 == 0:
+        if 200 <= step <= 800 and step % 5 == 0:
             all_vehicles = traci.vehicle.getIDList()
-            # --- [디버깅] 50스텝마다 현재 맵에 차가 몇 대인지 출력 ---
-            if step % 50 == 0:
+            # --- [디버깅] 100스텝마다 현재 맵에 차가 몇 대인지 출력 ---
+            if step % 100 == 0:
                 print(f" [Step {step}] 맵 위 차량: {len(all_vehicles)}대 (목표: {c.TOTAL_VEHICLES}대)")
             # --------------------------------------------------------
             
+            step_info = {}
             for v_id in all_vehicles:
             # TV를 발견하면 알고리즘 실행
                 if v_id not in vehicle_type_cache:          # 딕셔너리에 없는 차(새로 들어온 차)만 Traci에 물어봄
                     vehicle_type_cache[v_id] = traci.vehicle.getTypeID(v_id)
-                if vehicle_type_cache[v_id] == c.TYPE_TV:   # 저장된 캐시에서 타입 확인
+                step_info[v_id] = {
+                    'type': vehicle_type_cache[v_id],
+                    'pos': traci.vehicle.getPosition(v_id),
+                    'speed': traci.vehicle.getSpeed(v_id),
+                    'angle': traci.vehicle.getAngle(v_id)
+                }
+            for v_id in all_vehicles:
+                if step_info[v_id]['type'] == c.TYPE_TV:   # 저장된 캐시에서 타입 확인
                     total_requests += 1
                     
                     # 내 알고리즘 실행 및 결과 기록
-                    if alg.sv_selection(v_id):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
+                    if alg.sv_selection(v_id, step_info):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
                         success_proposed += 1      # 성공 시 횟수 증가
-                    if alg.sv_selection_distance_greedy(v_id):
+                    if alg.sv_selection_distance_greedy(v_id, step_info):
                         success_greedy += 1
                         
-        if step > 750:
-            break       # 실험은 1200초까지만 진행
+        if step > 800:
+            break       # 실험은 800초까지만 진행
     # 4. 환경 끄기
     env.close_sumo()
     
