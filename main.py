@@ -21,11 +21,18 @@ def run_single_simulation(density):
         traci.simulationStep()      # 1초 진행
         step += 1
         
-        if 200 <= step <= 800 and step % 5 == 0:
+        # 원래 나오던 유령 차들은 나오자마자 삭제
+        for v in traci.simulation.getDepartedIDList():
+            if not (v.startswith("tv_") or v.startswith("sv_")):
+                traci.vehicle.remove(v)
+        if 50 <= step <= 600 and step % 5 == 0:
             all_vehicles = traci.vehicle.getIDList()
-            # --- [디버깅] 100스텝마다 현재 맵에 차가 몇 대인지 출력 ---
-            if step % 100 == 0:
+            real_veh_count = traci.vehicle.getIDCount()
+            # --- [디버깅] 50스텝마다 현재 맵에 차가 몇 대인지 출력 ---
+            if step % 50 == 0:
                 print(f" [Step {step}] 맵 위 차량: {len(all_vehicles)}대 (목표: {c.TOTAL_VEHICLES}대)")
+                print(f" 현재 맵의 진짜 차량 수: {real_veh_count}대")
+
             # --------------------------------------------------------
             
             step_info = {}
@@ -49,14 +56,14 @@ def run_single_simulation(density):
                     if alg.sv_selection_distance_greedy(v_id, step_info):
                         success_greedy += 1
                         
-        if step > 800:
+        if step > 600:
             break       # 실험은 800초까지만 진행
     # 4. 환경 끄기
     env.close_sumo()
     
     # --- [디버깅] 실제 몇 번 요청이 잇었고 성공했는지 출력 ---
-    print(f"  >[결과] 총 TV 요청 횟수: {total_requests}번")
-    print(f"  >[결과] Proposed 성공: {success_proposed}번 | Greedy 성공: {success_greedy}번")
+    # print(f"  >[결과] 총 TV 요청 횟수: {total_requests}번")
+    # print(f"  >[결과] Proposed 성공: {success_proposed}번 | Greedy 성공: {success_greedy}번")
     # 5. 성공률 계산(0으로 나누기 방지)
     rate_proposed = ((success_proposed / total_requests) * 100) if total_requests > 0 else 0
     rate_greedy = ((success_greedy / total_requests) * 100) if total_requests > 0 else 0

@@ -8,10 +8,15 @@ def plot_success_rate_by_density(densities, proposed_rates, greedy_rates):
     # 2. 내 알고리즘 그래프 (파란색, 네모 점) -> 색상과 마커를 다르게 표시
     plt.plot(densities, proposed_rates, marker='s', color='blue',
              linestyle='-', linewidth=2, label='Proposed Scheme (SINR+Dir)')
+    # 내 알고리즘 점 위에 숫자 표시
+    for x, y in zip(densities, proposed_rates):
+        plt.text(x, y + 2, f"{y:.2f}", ha='center', va='bottom', fontsize=9, color='blue', fontweight='bold')
     
     # 3. 비교 스킴1: distance-based greedy 그래프 (빨간색, 엑스 점) -> 색상과 마커를 다르게 표시
     plt.plot(densities, greedy_rates, marker='x', color='red',
              linestyle='--', linewidth=2, label='Distance-based Greedy')
+    for x, y in zip(densities, greedy_rates):
+        plt.text(x, y - 2, f"{y:.2f}", ha='center', va='top', fontsize=9, color='red', fontweight='bold')
     
     # 4. 그래프 제목과 축 이름
     plt.title("SV Selection Success Rate Comparision by TV Density", fontsize=14)
