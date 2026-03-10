@@ -19,7 +19,8 @@ BW = 10e6                       # 대역폭 (10MHz)
 # --- 통신 및 자원 제약 ---
 ONE_HOP_LIMIT = 250             # 1-hop 통신 범위 (250m)
 SV_RESOURCE = 5 * (10**9)                # SV 연산 자원: 5 GHz
-COMP_INTENSITY = 1000           # 연산 복잡도 (1000 cycles/bit)
+COMP_MAX_INTENSITY = 1500           # 최대 연산 복잡도
+COMP_MIN_INTENSITY = 500            # 최소 연산 복잡도
 WEIGHT_SV_DIR = 0.5                # SV 선택 시 방향 유사도 가중치
 WEIGHT_SV_RATE = 0.5               # SV 선택 시 전송 효율 가중치
 WEIGHT_RL_DELAY = 0.5              # relay 선택 시 딜레이 가중치
@@ -41,6 +42,7 @@ CURRENT_TV_DENSITY = 0.8        # 현재 실험값
 
 # --- 실험 3: 제약 조건 및 가중치 ---
 MAX_LATENCY = 1.0               # 최대 허용 지연 (1s)
+MIN_LATENCY = 1.0               # 최소 허용 지연 (1s)
 BACKHAUL_DELAY = 0.003          # RSU 백홀 지연 (3ms)
 WEIGHT_F = 0.5                  # 실패율 가중치
 WEIGHT_D = 0.5                  # 딜레이 가중치

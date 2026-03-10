@@ -69,9 +69,11 @@ def sv_selection(tv_id, step_info):
     # 1. 이번 TV의 랜덤 task 크기 생성 (2~4 Mbits)
     task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
     task_bits = task_mbits * (10**6)    # 비트 단위로 변환
+    computation_intensity = random.uniform(c.COMP_MIN_INTENSITY, c.COMP_MAX_INTENSITY)
     
     # 2. 연산 시간(Comp Delay) 미리 계산
-    t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
+    t_comp = (task_bits * computation_intensity) / c.SV_RESOURCE
+    latency_constraint = random.uniform(c.MIN_LATENCY, c.MIN_LATENCY)
     
     # 3. 범위 내 SV 탐색 및 필터링 (Type & Distance & Delay)
     for v_id, info in step_info.items():
@@ -100,7 +102,7 @@ def sv_selection(tv_id, step_info):
                 t_off = t_tx + t_comp
                 
                 # 최대 지연 허용 지연(1초)을 넘으면 후보 리스트에 넣지 않음(탈락!)
-                if t_off <= c.MAX_LATENCY:
+                if t_off <= latency_constraint:
                     sv_candidates.append({'id': v_id, 'rate': rate, 'dir_score': dir_score})
                 
     # 4. 후보 없음: 1-hop 이내에 차량 없음 + 딜레이 제약
@@ -154,7 +156,11 @@ def sv_selection_distance_greedy(tv_id, step_info):
     # 검증: 가장 가까워서 뽑았는데 시간 제약 내에 가능한지 평가
     task_mbits = random.uniform(c.TASK_MIN_MBITS, c.TASK_MAX_MBITS)
     task_bits = task_mbits * (10**6)
-    t_comp = (task_bits * c.COMP_INTENSITY) / c.SV_RESOURCE
+    computation_intensity = random.uniform(c.COMP_MIN_INTENSITY, c.COMP_MAX_INTENSITY)
+
+    t_comp = (task_bits * computation_intensity) / c.SV_RESOURCE
+    latency_constraint = random.uniform(c.MIN_LATENCY, c.MIN_LATENCY)
+
     
     sv_pos = step_info[best_sv_id]['pos']
     dist = calulate_distance(tv_pos, sv_pos)
@@ -167,6 +173,6 @@ def sv_selection_distance_greedy(tv_id, step_info):
     if rate > 0:
         t_tx = task_bits / rate
         t_off = t_tx + t_comp
-        if t_off <= c.MAX_LATENCY:
+        if t_off <= latency_constraint:
             return best_sv_id
     return None     # 1초 넘겼으니 실패
