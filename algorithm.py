@@ -73,7 +73,7 @@ def sv_selection(tv_id, step_info):
     
     # 2. 연산 시간(Comp Delay) 미리 계산
     t_comp = (task_bits * computation_intensity) / c.SV_RESOURCE
-    latency_constraint = random.uniform(c.MIN_LATENCY, c.MIN_LATENCY)
+    latency_constraint = random.uniform(c.MIN_LATENCY_CONSTRAINT, c.MAX_LATENCY_CONSTRAINT)
     
     # 3. 범위 내 SV 탐색 및 필터링 (Type & Distance & Delay)
     for v_id, info in step_info.items():
@@ -159,7 +159,7 @@ def sv_selection_distance_greedy(tv_id, step_info):
     computation_intensity = random.uniform(c.COMP_MIN_INTENSITY, c.COMP_MAX_INTENSITY)
 
     t_comp = (task_bits * computation_intensity) / c.SV_RESOURCE
-    latency_constraint = random.uniform(c.MIN_LATENCY, c.MIN_LATENCY)
+    latency_constraint = random.uniform(c.MIN_LATENCY_CONSTRAINT, c.MAX_LATENCY_CONSTRAINT)
 
     
     sv_pos = step_info[best_sv_id]['pos']
