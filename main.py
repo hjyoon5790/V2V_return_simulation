@@ -62,7 +62,7 @@ def run_single_simulation(density):
     env.close_sumo()
     
     # --- [디버깅] 실제 몇 번 요청이 잇었고 성공했는지 출력 ---
-    # print(f"  >[결과] 총 TV 요청 횟수: {total_requests}번")
+    print(f"  >[결과] 총 TV 요청 횟수: {total_requests}번")
     # print(f"  >[결과] Proposed 성공: {success_proposed}번 | Greedy 성공: {success_greedy}번")
     # 5. 성공률 계산(0으로 나누기 방지)
     rate_proposed = ((success_proposed / total_requests) * 100) if total_requests > 0 else 0

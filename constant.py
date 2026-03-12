@@ -36,13 +36,13 @@ ALPHA = 0.3                      # 리턴 데이터 비율 (0.1 ~ 1.0 가변) ->
 ALPHA_X_AXIS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]       # 그래프 그릴 때 사용
 
 # --- 실험 2: 환경 배치 및 밀도 ---
-TOTAL_VEHICLES = 150            # 총 차량 수는 고정
+TOTAL_VEHICLES = 200            # 총 차량 수는 고정
 TV_DENSITY_LIST = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9] # x축: 전체 중 TV가 차지하는 비율
 CURRENT_TV_DENSITY = 0.8        # 현재 실험값
 
 # --- 실험 3: 제약 조건 및 가중치 ---
 MAX_LATENCY_CONSTRAINT = 1.0               # 최대 허용 지연 (1s)
-MIN_LATENCY_CONSTRAINT = 1.0               # 최소 허용 지연 (1s)
+MIN_LATENCY_CONSTRAINT = 0.1               # 최소 허용 지연 (100ms)
 BACKHAUL_DELAY = 0.003          # RSU 백홀 지연 (3ms)
 WEIGHT_F = 0.5                  # 실패율 가중치
 WEIGHT_D = 0.5                  # 딜레이 가중치
