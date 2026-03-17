@@ -25,11 +25,11 @@ def run_single_simulation(density):
         for v in traci.simulation.getDepartedIDList():
             if not (v.startswith("tv_") or v.startswith("sv_")):
                 traci.vehicle.remove(v)
-        if 50 <= step <= 600 and step % 5 == 0:
+        if 10 <= step <= 500 and step % 5 == 0:
             all_vehicles = traci.vehicle.getIDList()
             real_veh_count = traci.vehicle.getIDCount()
             # --- [디버깅] 50스텝마다 현재 맵에 차가 몇 대인지 출력 ---
-            if step % 50 == 0:
+            if step % 30 == 0:
                 print(f" [Step {step}] 맵 위 차량: {len(all_vehicles)}대 (목표: {c.TOTAL_VEHICLES}대)")
                 print(f" 현재 맵의 진짜 차량 수: {real_veh_count}대")
 
@@ -50,13 +50,14 @@ def run_single_simulation(density):
                 if step_info[v_id]['type'] == c.TYPE_TV:   # 저장된 캐시에서 타입 확인
                     total_requests += 1
                     
+                    task_bits, t_comp, lat_constraint = alg.generate_random_task()
                     # 내 알고리즘 실행 및 결과 기록
-                    if alg.sv_selection(v_id, step_info):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
+                    if alg.sv_selection(v_id, step_info, task_bits, t_comp, lat_constraint):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
                         success_proposed += 1      # 성공 시 횟수 증가
-                    if alg.sv_selection_distance_greedy(v_id, step_info):
+                    if alg.sv_selection_distance_greedy(v_id, step_info, task_bits, t_comp, lat_constraint):
                         success_greedy += 1
                         
-        if step > 600:
+        if step > 500:
             break       # 실험은 800초까지만 진행
     # 4. 환경 끄기
     env.close_sumo()
