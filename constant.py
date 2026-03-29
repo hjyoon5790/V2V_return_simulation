@@ -12,6 +12,7 @@ TYPE_SV = "SV"
 NOISE_POWER = 1.38e-13          # 노이즈 전력 (Watts) - 계산식: 10^((-174+70)/10)/1000
 WAVELENGTH = 0.05               # 파장: 5.9GHz 기준 약 0.05m
 PATH_LOSS_EXP = 2.7             # 경로 손실 지수 (Urban 환경)
+V2I_PATH_LOSS_EXP = 2.3         # V2I 경로 손실 지수 (LOS 위주)
 BW = 10e6                       # 대역폭 (10MHz)
 
 # --- 장애물 ---
@@ -45,14 +46,15 @@ BUILDING_WALLS = [
 # ==========================================================
 # 2. [VARIABLE -> FIXED] 실험 후 고정
 # --- 통신 및 자원 제약 ---
+RSU_POS = (250, 250)            # RSU 위치 (맵 중앙 가정)
 ONE_HOP_LIMIT = 250             # 1-hop 통신 범위 (250m)
 SV_RESOURCE = 7 * (10**9)                # SV 연산 자원: 7 GHz
 COMP_MAX_INTENSITY = 1500           # 최대 연산 복잡도
 COMP_MIN_INTENSITY = 500            # 최소 연산 복잡도
 MAX_LATENCY_CONSTRAINT = 1.0               # 최대 허용 지연 (1s)
 MIN_LATENCY_CONSTRAINT = 0.1               # 최소 허용 지연 (100ms)
-WEIGHT_SV_DIR = 0.5                # SV 선택 시 방향 유사도 가중치
-WEIGHT_SV_RATE = 0.5               # SV 선택 시 전송 효율 가중치
+WEIGHT_SV_DIR = 1.0                # SV 선택 시 방향 유사도 가중치
+WEIGHT_SV_RATE = 0.0               # SV 선택 시 전송 효율 가중치
 WEIGHT_RL_DELAY = 0.5              # relay 선택 시 딜레이 가중치
 WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중치
 
@@ -61,7 +63,7 @@ WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중
 
 # --- 실험 1: 데이터 크기 및 리턴 비율 ---
 TASK_MIN_MBITS = 0.5             # 최소 0.5 Mbits
-TASK_MAX_MBITS = 5             # 최소 1.5 Mbits
+TASK_MAX_MBITS = 2.0             # 최소 2.0 Mbits
 ALPHA = 0.3                      # 리턴 데이터 비율 (0.1 ~ 1.0 가변) -> 실험 시 사용할 디폴트 값
 ALPHA_X_AXIS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]       # 그래프 그릴 때 사용
 

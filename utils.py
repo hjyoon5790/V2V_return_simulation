@@ -1,63 +1,40 @@
-import traci
 import random
 import constant as c
+import xml.etree.ElementTree as ET
 
-''' TV와 SV 비율에 맞춰 차량 맵에 소환 '''
-def spawn_vehicles(density):
-    # 1. 소환할 차량 대수 계산
-    num_tv = int(c.TOTAL_VEHICLES * density)
-    num_sv = c.TOTAL_VEHICLES - num_tv
+def generate_route_file(density, net_file="map_data/manhattan.net.xml", output_file="map_data/generated.rou.xml"):
+    """ 밀도에 따라 차량의 출발지, 목적지, 타입을 정한 .rou.xml 파일을 생성 """
     
-    # 2. 현재 맵에 존재하는 경로 이름 가져오기 -> 차가 다닐 경로가 반드시 있어야 함.
-    all_edges = [e for e in traci.edge.getIDList() if not e.startswith(":")]        
-    # SUMO의 기본 차종을 복사해 TV라는 새로운 차종 만들고 빨간색으로 칠함
-    traci.vehicletype.copy("DEFAULT_VEHTYPE", c.TYPE_TV)
-    traci.vehicletype.setColor(c.TYPE_TV, (255, 0, 0, 255))
-    traci.vehicletype.setMaxSpeed(c.TYPE_TV, 16.67)     # SUMO는 속도 단위로 초속을 사용
-    traci.vehicletype.setSpeedFactor(c.TYPE_TV, 0.8)    # 차량의 속도에 랜덤성 부여 -> 차량이 제한 속도 대비 평균적으로 80%의 속도를 내도록 맞춰줌
-    
-    # SV라는 차종을 만들고 파란색으로 칠함
-    traci.vehicletype.copy("DEFAULT_VEHTYPE",c.TYPE_SV)
-    traci.vehicletype.setColor(c.TYPE_SV, (0, 0, 255, 255))
-    traci.vehicletype.setMaxSpeed(c.TYPE_SV, 16.67)
-    traci.vehicletype.setSpeedFactor(c.TYPE_SV, 0.8)
-    
-    
-    vehicle_types = [c.TYPE_TV] * num_tv + [c.TYPE_SV] * num_sv     # TV와 SV의 타입 이름을 차량 수만큼 리스트에 담기
-    random.shuffle(vehicle_types)       # 리스트의 순서를 무작위로 섞음
-    
-    # ID에 붙일 번호를 따로 카운트
-    tv_count = 0
-    sv_count = 0
-    
-    for i, v_type in enumerate(vehicle_types):
-        if v_type == c.TYPE_TV:
-            v_id = f"tv_{tv_count}"
-            tv_count += 1
-        else:
-            v_id = f"sv_{sv_count}"
-            sv_count += 1
-        # 맵 전체를 자유롭게 돌아다니도록 각 차량만의 경로 실시간 생성
-        valid_route = False
-        while not valid_route:
-            start_edge = random.choice(all_edges)   # 랜덤 출발지
-            end_edge = random.choice(all_edges)     # 랜덤 도착지
-            
-            # TraCI에게 두 도로 사이의 길을 찾아달라고 요청
-            route = traci.simulation.findRoute(start_edge, end_edge)
-            
-            # 길이 정상적으로 존재한다면
-            if route and len(route.edges) > 0:
-                route_id = f"route_{v_id}"
-                traci.route.add(route_id, route.edges)  # 맵에 새로운 경로 등록
+    try:
+        # 1. 네트워크 파일에서 도로(edge) 목록 추출
+        tree = ET.parse(net_file)
+        root = tree.getroot()
+        all_edges = [edge.get('id') for edge in root.findall('edge') if ":" not in edge.get('id')]
+
+        # 2. 차량 대수 계산
+        num_tv = int(c.TOTAL_VEHICLES * density)
+        num_sv = c.TOTAL_VEHICLES - num_tv
+        vehicle_types = [c.TYPE_TV] * num_tv + [c.TYPE_SV] * num_sv
+        random.shuffle(vehicle_types)
+
+        # 3. XML 파일 쓰기
+        with open(output_file, "w") as f:
+            f.write('<routes>\n')
+            # vType 정의: 여기서 사용자님이 설정하신 가속도, 최대속도 등을 고정합니다.
+            f.write(f'    <vType id="{c.TYPE_TV}" accel="2.6" decel="4.5" sigma="0.5" length="5" minGap="2.5" maxSpeed="16.67" color="1,0,0" speedFactor="normc(0.8,0.1)"/>\n')
+            f.write(f'    <vType id="{c.TYPE_SV}" accel="2.6" decel="4.5" sigma="0.5" length="5" minGap="2.5" maxSpeed="16.67" color="0,0,1" speedFactor="normc(0.8,0.1)"/>\n')
+
+            tv_idx, sv_idx = 0, 0
+            for i, v_type in enumerate(vehicle_types):
+                v_id = f"tv_{tv_idx}" if v_type == c.TYPE_TV else f"sv_{sv_idx}"
+                if v_type == c.TYPE_TV: tv_idx += 1
+                else: sv_idx += 1
                 
-                # 새로 만든 경로로 차량 소환
-                traci.vehicle.add(
-                    v_id,
-                    route_id,
-                    typeID=v_type,
-                    departLane="random",        # 아무 차선에서 분산되어 등장
-                    departPos="random_free"     # 도로 위에 빈 공간을 찾아서 등장
-                )
-                valid_route = True
-    print(f"차량 세팅 완료! [TV: {num_tv}대 | SV: {num_sv}대] - 섞어서 소환")
+                start = random.choice(all_edges)
+                end = random.choice(all_edges)
+                f.write(f'    <trip id="{v_id}" type="{v_type}" depart="{i * 0.5:.1f}" from="{start}" to="{end}" departLane="best" departPos="base"/>\n')
+            
+            f.write('</routes>\n')
+        print(f"루트 파일 생성 완료: {output_file} [TV: {num_tv} | SV: {num_sv}]")
+    except Exception as e:
+        print(f"파일 생성 중 오류 발생: {e}")

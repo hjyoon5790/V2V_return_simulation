@@ -95,7 +95,10 @@ def get_total_interference(tv_id, sv_pos, step_info):
     return total_interf
 
 """ TV를 위해 최적의 SV 선택하는 함수 """
-def sv_selection(tv_id, step_info, task_bits, t_comp, latency_constraint):
+def sv_selection(tv_id, step_info, task_info):
+    task_bits = task_info['task_bits']
+    t_comp = task_info['t_comp']
+    latency_constraint = task_info['lat_constraint']
     tv_pos = step_info[tv_id]['pos']
     sv_candidates = []
     
@@ -155,9 +158,12 @@ def sv_selection(tv_id, step_info, task_bits, t_comp, latency_constraint):
     return best_sv_id
 
 """ [비교 스킴1] distance-based greedy """
-def sv_selection_distance_greedy(tv_id, step_info, task_bits, t_comp, latency_constraint):
+def sv_selection_distance_greedy(tv_id, step_info, task_info):
+    task_bits = task_info['task_bits']
+    t_comp = task_info['t_comp']
+    latency_constraint = task_info['lat_constraint']
+    
     tv_pos = step_info[tv_id]['pos']   # 현재 TV 위치 가져오기
-        
     best_sv_id = None
     min_dist = float('inf')     # 가장 짧은 거리를 찾기 위해 무한대로 초기화
     

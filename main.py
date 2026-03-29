@@ -4,10 +4,13 @@ import environment as env
 import utils
 import algorithm as alg
 import utils_graph as ug
+import random
+import numpy as np
+import matplotlib.pyplot as plt
 
 def run_single_simulation(density):
-    env.start_sumo()        # 1. 시뮬레이션 환경 켜기
-    utils.spawn_vehicles(density)   # 2. 해당 밀도로 차량 소환
+    utils.generate_route_file(density) # 1. 해당 밀도로 .rou.xml 파일 생성
+    env.start_sumo()                   # 2. 생성된 파일을 로드하며 시뮬레이션 시작
     
     step = 0
     total_requests = 0      # 전체 요청 횟수
@@ -25,19 +28,20 @@ def run_single_simulation(density):
         for v in traci.simulation.getDepartedIDList():
             if not (v.startswith("tv_") or v.startswith("sv_")):
                 traci.vehicle.remove(v)
-        if 10 <= step <= 500 and step % 5 == 0:
-            all_vehicles = traci.vehicle.getIDList()
-            real_veh_count = traci.vehicle.getIDCount()
-            # --- [디버깅] 50스텝마다 현재 맵에 차가 몇 대인지 출력 ---
-            if step % 30 == 0:
-                print(f" [Step {step}] 맵 위 차량: {len(all_vehicles)}대 (목표: {c.TOTAL_VEHICLES}대)")
-                print(f" 현재 맵의 진짜 차량 수: {real_veh_count}대")
 
+        # Step 30부터 500까지 5스텝마다 측정
+        if 30 <= step <= 500 and step % 5 == 0:
+            vehicle_ids = traci.vehicle.getIDList()
+            veh_count = len(vehicle_ids)             # 맵 위 차량 대수 계산
+            real_veh_count = traci.vehicle.getIDCount()     # Traci가 인식하는 차량 수 (유령차 제거 후)
+            # --- [디버깅] 30스텝마다 현재 맵에 차가 몇 대인지 출력 ---
+            if step % 30 == 0:
+                print(f" [Step {step}] 맵 위 차량: {veh_count}대 (목표: {c.TOTAL_VEHICLES}대)")
+                print(f"  > 맵 위 실제 차량 수: {real_veh_count}대")
             # --------------------------------------------------------
             
             step_info = {}
-            for v_id in all_vehicles:
-            # TV를 발견하면 알고리즘 실행
+            for v_id in vehicle_ids:
                 if v_id not in vehicle_type_cache:          # 딕셔너리에 없는 차(새로 들어온 차)만 Traci에 물어봄
                     vehicle_type_cache[v_id] = traci.vehicle.getTypeID(v_id)
                 step_info[v_id] = {
@@ -46,19 +50,26 @@ def run_single_simulation(density):
                     'speed': traci.vehicle.getSpeed(v_id),
                     'angle': traci.vehicle.getAngle(v_id)
                 }
-            for v_id in all_vehicles:
+            for v_id in vehicle_ids:
                 if step_info[v_id]['type'] == c.TYPE_TV:   # 저장된 캐시에서 타입 확인
                     total_requests += 1
                     
                     task_bits, t_comp, lat_constraint = alg.generate_random_task()
+                    task_info_original = {
+                        'task_bits': task_bits,
+                        't_comp': t_comp,
+                        'lat_constraint': lat_constraint
+                    }
+                    task_for_proposed = task_info_original.copy()
+                    task_for_greedy = task_info_original.copy()
                     # 내 알고리즘 실행 및 결과 기록
-                    if alg.sv_selection(v_id, step_info, task_bits, t_comp, lat_constraint):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
+                    if alg.sv_selection(v_id, step_info, task_for_proposed):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
                         success_proposed += 1      # 성공 시 횟수 증가
-                    if alg.sv_selection_distance_greedy(v_id, step_info, task_bits, t_comp, lat_constraint):
+                    if alg.sv_selection_distance_greedy(v_id, step_info, task_for_greedy):
                         success_greedy += 1
                         
         if step > 500:
-            break       # 실험은 800초까지만 진행
+            break
     # 4. 환경 끄기
     env.close_sumo()
     
@@ -74,16 +85,30 @@ if __name__ == "__main__":
     # 결과를 저장할 리스트 두 개 준비
     proposed_rates = []
     greedy_rates = []
+    NUM_TRIALS = 5  # 각 밀도별 반복 횟수 설정
     
     # constant.py에 정의된 density 리스트를 하나씩 꺼내 반복
     for d in c.TV_DENSITY_LIST:
         print(f"--- 현재 TV 밀도 {d} 실험 중 ---")
-        p_rate, g_rate = run_single_simulation(d)     # 시뮬레이션 실행 -> 두 개의 결괏값 받음
+
+        trial_proposed = []
+        trial_greedy = []
         
-        proposed_rates.append(p_rate)
-        greedy_rates.append(g_rate)
+        # 각 밀도당 5번 반복 실행
+        for i in range(NUM_TRIALS):
+            print(f"  [시행 {i+1}/{NUM_TRIALS}]")
+            p_rate, g_rate = run_single_simulation(d)
+            trial_proposed.append(p_rate)
+            trial_greedy.append(g_rate)
         
-        print(f"Proposed: {p_rate:.2f}% | Greedy: {g_rate:.2f}%")
+        avg_p = sum(trial_proposed) / NUM_TRIALS
+        avg_g = sum(trial_greedy) / NUM_TRIALS
+        
+        # 평균값만 결과 리스트에 추가
+        proposed_rates.append(avg_p)
+        greedy_rates.append(avg_g)
+        
+        print(f"==> 밀도 {d} 최종 결과 - Proposed 평균: {avg_p:.2f}% | Greedy 평균: {avg_g:.2f}%")
         
     # 모든 밀도 실험이 끝나면 최종 그래프 그리기
     ug.plot_success_rate_by_density(c.TV_DENSITY_LIST, proposed_rates, greedy_rates)
