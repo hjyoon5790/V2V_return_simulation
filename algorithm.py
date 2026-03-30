@@ -98,7 +98,11 @@ def get_total_interference(tv_id, sv_pos, step_info):
     return total_interf
 
 """ TV를 위해 최적의 SV 선택하는 함수 """
-def sv_selection(tv_id, step_info, task_info):
+def sv_selection(tv_id, step_info, task_info, n_sharing=1):
+    # [추가] 최대 접속 인원 초과 시 실패 처리
+    if n_sharing > c.MAX_N_SHARING:
+        return None, c.PENALTY_DELAY
+
     task_bits = task_info['task_bits']
     t_comp = task_info['t_comp']
     latency_constraint = task_info['lat_constraint']
@@ -125,23 +129,23 @@ def sv_selection(tv_id, step_info, task_info):
                 gain = calculate_channel_gain(dist)
                 interf = get_total_interference(tv_id, sv_pos, step_info)
                 sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-                rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0   # Shannon Capacity
                 
-                # (3) 지연 시간 조건 확인
-                if rate <=0:
-                    continue        # 통신 불가능하면 패스
+                # [수정] 대역폭 1/N 분할 적용
+                rate = (c.BW / n_sharing) * math.log2(1 + sinr) if sinr > 0 else 0
                 
-                t_tx = task_bits / rate     # 전송 시간 = 데이터 크기/속도
-                t_off = t_tx + t_comp
+                if rate > 0:
+                    t_tx = task_bits / rate
+                    # [수정] 가용 CPU 자원을 N등분 (연산 시간 t_comp는 N배 증가)
+                    t_off = t_tx + (t_comp * n_sharing)
                 
-                # 최대 지연 허용 지연을 넘으면 후보 리스트에 넣지 않음(탈락!)
-                if t_off <= latency_constraint:
-                    sv_candidates.append({'id': v_id, 'rate': rate, 'mob_score': mob_score, 't_off': t_off})
+                    # 최대 허용 지연을 넘지 않는 후보만 추가
+                    if t_off <= latency_constraint:
+                        sv_candidates.append({'id': v_id, 'rate': rate, 'mob_score': mob_score, 't_off': t_off})
                 
     # 4. 후보 없음: 1-hop 이내에 차량 없음 + 딜레이 제약
     if not sv_candidates:
         ### 여기에 나중에 RSU에게 넘기는 코드 추가
-        return None, 0
+        return None, c.PENALTY_DELAY
     
     # 5. 정규화 및 최종 점수 계산(살아남은 후보끼리 경쟁)
     # rate가 가장 높은 SV 찾기(분모 0 방지)
@@ -164,7 +168,11 @@ def sv_selection(tv_id, step_info, task_info):
 
 
 """ [비교 스킴1] distance-based greedy """
-def sv_selection_distance_greedy(tv_id, step_info, task_info):
+def sv_selection_distance_greedy(tv_id, step_info, task_info, n_sharing=1):
+    # [추가] 최대 접속 인원 초과 시 실패 처리
+    if n_sharing > c.MAX_N_SHARING:
+        return None, c.PENALTY_DELAY
+
     task_bits = task_info['task_bits']
     t_comp = task_info['t_comp']
     latency_constraint = task_info['lat_constraint']
@@ -189,7 +197,7 @@ def sv_selection_distance_greedy(tv_id, step_info, task_info):
                     min_dist = dist
                     best_sv_id = v_id
     if best_sv_id is None:              # 반경 내 SV가 아예 없으면 실패
-        return None, 0
+        return None, c.PENALTY_DELAY
 
     sv_pos = step_info[best_sv_id]['pos']
     dist = calculate_distance(tv_pos, sv_pos)
@@ -197,23 +205,28 @@ def sv_selection_distance_greedy(tv_id, step_info, task_info):
     gain = calculate_channel_gain(dist)
     interf = get_total_interference(tv_id, sv_pos, step_info)
     sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-    rate = c.BW * math.log2(1 + sinr) if sinr > 0 else 0
+
+    # [수정] 대역폭 및 CPU 자원 1/N 분할 적용
+    rate = (c.BW / n_sharing) * math.log2(1 + sinr) if sinr > 0 else 0
                 
     if rate > 0:
         t_tx = task_bits / rate
-        t_off = t_tx + t_comp
+        t_off = t_tx + (t_comp * n_sharing)
         if t_off <= latency_constraint:
             return best_sv_id, t_off
-    return None, 0     # 1초 넘겼으니 실패
+    return None, c.PENALTY_DELAY     # 1초 넘겼으니 실패
 
 """ [모델링 3, 4, 5단계] 리턴 경로 평가 및 최종 전송 로직 """
-def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off):
+def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing=1, n_rl_sharing=1):    
     tv_pos = step_info[tv_id]['pos']
     sv_pos = step_info[sv_id]['pos']
     d_out = task_info['task_bits'] * c.ALPHA
     t_rem = task_info['lat_constraint'] - t_off
     
-    if t_rem <= 0: return False, t_off
+    # SV 리턴 용량 초과 체크
+    if n_sv_sharing > c.MAX_N_SHARING: return False, c.PENALTY_DELAY
+    
+    if t_rem <= 0: return False, c.PENALTY_DELAY
 
     # 3. 리턴 경로 상태 확인 (Direct Link Check)
     dist = calculate_distance(sv_pos, tv_pos)
@@ -221,7 +234,8 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off):
     if dist <= c.ONE_HOP_LIMIT and check_los(tv_pos, sv_pos, c.BUILDING_WALLS):
         gain = calculate_channel_gain(dist)
         interf = get_total_interference(sv_id, tv_pos, step_info)
-        rate = c.BW * math.log2(1 + (c.P_TX_SV * gain) / (interf + c.NOISE_POWER)) if (interf + c.NOISE_POWER) > 0 else 0
+        # [수정] SV의 리턴 대역폭도 공유
+        rate = (c.BW / n_sv_sharing) * math.log2(1 + (c.P_TX_SV * gain) / (interf + c.NOISE_POWER)) if (interf + c.NOISE_POWER) > 0 else 0
         if rate > 0:
             t_return = d_out / rate
             if t_return <= t_rem:
@@ -244,11 +258,15 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off):
         if dist_s_r > c.ONE_HOP_LIMIT or dist_r_t > c.ONE_HOP_LIMIT:
             continue
         
+        # 릴레이 노드 용량 초과 체크
+        if n_rl_sharing > c.MAX_N_SHARING: continue
+
         # 1차 필터링: 양방향 LOS 확보
         if check_los(sv_pos, rl_pos, c.BUILDING_WALLS) and check_los(rl_pos, tv_pos, c.BUILDING_WALLS):
             # SV -> RL 전송 속도
-            rate_s_r = c.BW * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_s_r)) / (get_total_interference(sv_id, rl_pos, step_info) + c.NOISE_POWER))
-            rate_r_t = c.BW * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_r_t)) / (get_total_interference(rl_id, tv_pos, step_info) + c.NOISE_POWER))
+            # [수정] 릴레이 노드의 대역폭 공유 적용
+            rate_s_r = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_s_r)) / (get_total_interference(sv_id, rl_pos, step_info) + c.NOISE_POWER))
+            rate_r_t = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_r_t)) / (get_total_interference(rl_id, tv_pos, step_info) + c.NOISE_POWER))
             
             if rate_s_r > 0 and rate_r_t > 0:
                 t_rl = (d_out / rate_s_r) + (d_out / rate_r_t)
@@ -268,9 +286,12 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off):
     dist_s_rsu = calculate_distance(sv_pos, c.RSU_POS)
     dist_rsu_t = calculate_distance(c.RSU_POS, tv_pos)
     
-    # RSU 전송 속도 계산 (V2I 경로 손실 지수 적용)
-    rate_s_rsu = c.BW * math.log2(1 + (c.P_TX_SV * calculate_v2i_gain(dist_s_rsu)) / c.NOISE_POWER)
-    rate_rsu_t = c.BW * math.log2(1 + (c.P_TX_RSU * calculate_v2i_gain(dist_rsu_t)) / c.NOISE_POWER)
+    # RSU 용량 초과 체크
+    if n_rl_sharing > c.MAX_N_SHARING: pass # RSU는 용량이 크다고 가정할 수도 있지만, 요청대로 체크 적용 가능
+
+    # [수정] RSU는 대역폭 공유 시 BW_RSU를 사용하며, 간섭 없이 NOISE만 고려 (OFDMA 가정)
+    rate_s_rsu = (c.BW_RSU / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_v2i_gain(dist_s_rsu)) / c.NOISE_POWER)
+    rate_rsu_t = (c.BW_RSU / n_rl_sharing) * math.log2(1 + (c.P_TX_RSU * calculate_v2i_gain(dist_rsu_t)) / c.NOISE_POWER)
     
     if rate_s_rsu > 0 and rate_rsu_t > 0:
         t_rsu = (d_out / rate_s_rsu) + c.BACKHAUL_DELAY + (d_out / rate_rsu_t)
@@ -285,4 +306,4 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off):
         best_candidate = min(relay_candidates, key=lambda x: x['cost'])
         return True, best_candidate['total_time']
 
-    return False, t_off # 모든 경로 실패
+    return False, c.PENALTY_DELAY # 모든 경로 실패

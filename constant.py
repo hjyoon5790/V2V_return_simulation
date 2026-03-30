@@ -14,6 +14,7 @@ WAVELENGTH = 0.05               # 파장: 5.9GHz 기준 약 0.05m
 PATH_LOSS_EXP = 2.7             # 경로 손실 지수 (Urban 환경)
 V2I_PATH_LOSS_EXP = 2.3         # V2I 경로 손실 지수 (LOS 위주)
 BW = 10e6                       # 대역폭 (10MHz)
+BW_RSU = 50e6                   # RSU 대역폭 (50MHz) - SV보다 5배 큼
 
 # --- 장애물 ---
 BUILDING_WALLS = [
@@ -48,7 +49,7 @@ BUILDING_WALLS = [
 # --- 통신 및 자원 제약 ---
 RSU_POS = (250, 250)            # RSU 위치 (맵 중앙 가정)
 ONE_HOP_LIMIT = 250             # 1-hop 통신 범위 (250m)
-SV_RESOURCE = 7 * (10**9)                # SV 연산 자원: 7 GHz
+SV_RESOURCE = 30 * (10**9)                # SV 연산 자원: 30 GHz
 COMP_MAX_INTENSITY = 1500           # 최대 연산 복잡도
 COMP_MIN_INTENSITY = 500            # 최소 연산 복잡도
 MAX_LATENCY_CONSTRAINT = 1.0               # 최대 허용 지연 (1s)
@@ -57,6 +58,8 @@ WEIGHT_SV_DIR = 0.5                # SV 선택 시 방향 유사도 가중치
 WEIGHT_SV_RATE = 0.5               # SV 선택 시 전송 효율 가중치
 WEIGHT_RL_DELAY = 0.5              # relay 선택 시 딜레이 가중치
 WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중치
+MAX_N_SHARING = 10                 # 하나의 노드에 접속 가능한 최대 TV 수 (5~10대)
+PENALTY_DELAY = 5.0                # 오프로딩 실패 시 부여할 페널티 지연 시간 (5초)
 
 # ==========================================================
 # 3. [VARIABLE] 실험 파라미터 (그래프 추출 시 수정)

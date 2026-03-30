@@ -50,32 +50,56 @@ def run_single_simulation(density):
                     'speed': traci.vehicle.getSpeed(v_id),
                     'angle': traci.vehicle.getAngle(v_id)
                 }
-            for v_id in vehicle_ids:
-                if step_info[v_id]['type'] == c.TYPE_TV:   # 저장된 캐시에서 타입 확인
-                    total_requests += 1
-                    
-                    task_bits, t_comp, lat_constraint = alg.generate_random_task()
-                    task_info_original = {
-                        'task_bits': task_bits,
-                        't_comp': t_comp,
-                        'lat_constraint': lat_constraint
-                    }
-                    task_for_proposed = task_info_original.copy()
-                    task_for_greedy = task_info_original.copy()
+            
+            # 현재 맵의 모든 TV 목록 추출
+            tvs = [v for v in vehicle_ids if step_info[v]['type'] == c.TYPE_TV]
+            total_requests += len(tvs)
 
-                    # 내 알고리즘 실행 및 결과 기록
-                    best_sv_p, t_off_p = alg.sv_selection(v_id, step_info, task_for_proposed)
-                    if best_sv_p:
-                        # SV가 선택되었다면 리턴 경로(Direct, Relay, RSU)까지 평가
-                        is_success, _ = alg.evaluate_return_path(v_id, best_sv_p, step_info, task_for_proposed, t_off_p)
-                        if is_success:
-                            success_proposed += 1
+            # --- Step 1: 초기 타겟 선택 (Sharing 반영 전) ---
+            proposed_requests = [] # (tv_id, target_sv_id, task_info)
+            greedy_requests = []
 
-                    best_sv_g, t_off_g = alg.sv_selection_distance_greedy(v_id, step_info, task_for_greedy)
-                    if best_sv_g:
-                        is_success_g, _ = alg.evaluate_return_path(v_id, best_sv_g, step_info, task_for_greedy, t_off_g)
-                        if is_success_g:
-                            success_greedy += 1
+            for tv_id in tvs:
+                task_bits, t_comp, lat_constraint = alg.generate_random_task()
+                task = {'task_bits': task_bits, 't_comp': t_comp, 'lat_constraint': lat_constraint}
+                
+                # 일단 자원이 넉넉하다고 가정(n=1)하고 어떤 SV를 선호하는지 결정
+                sv_p, _ = alg.sv_selection(tv_id, step_info, task, n_sharing=1)
+                if sv_p: proposed_requests.append((tv_id, sv_p, task))
+
+                sv_g, _ = alg.sv_selection_distance_greedy(tv_id, step_info, task, n_sharing=1)
+                if sv_g: greedy_requests.append((tv_id, sv_g, task.copy()))
+
+            # --- Step 2: 노드별 접속 차량 수 카운트 (Sharing Factor N 계산) ---
+            def get_node_counts(requests):
+                counts = {}
+                for _, sv_id, _ in requests:
+                    counts[sv_id] = counts.get(sv_id, 0) + 1
+                return counts
+
+            p_counts = get_node_counts(proposed_requests)
+            g_counts = get_node_counts(greedy_requests)
+
+            # --- Step 3: 자원 분할(1/N)을 적용한 최종 성공 판정 ---
+            # 1) Proposed 기법
+            for tv_id, sv_id, task in proposed_requests:
+                n = p_counts[sv_id]
+                # 실제 N등분된 자원으로 다시 계산
+                _, t_off_shared = alg.sv_selection(tv_id, step_info, task, n_sharing=n)
+                if t_off_shared != c.PENALTY_DELAY: # 자원 공유 후에도 지연 시간 조건을 만족하면
+                    # 리턴 경로 평가 (여기서도 SV 대역폭 공유 n 적용)
+                    is_success, _ = alg.evaluate_return_path(tv_id, sv_id, step_info, task, t_off_shared, n_sv_sharing=n)
+                    if is_success:
+                        success_proposed += 1
+
+            # 2) Greedy 기법
+            for tv_id, sv_id, task in greedy_requests:
+                n = g_counts[sv_id]
+                _, t_off_shared = alg.sv_selection_distance_greedy(tv_id, step_info, task, n_sharing=n)
+                if t_off_shared != c.PENALTY_DELAY:
+                    is_success, _ = alg.evaluate_return_path(tv_id, sv_id, step_info, task, t_off_shared, n_sv_sharing=n)
+                    if is_success:
+                        success_greedy += 1
                         
         if step > 500:
             break
