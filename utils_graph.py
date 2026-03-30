@@ -19,7 +19,7 @@ def plot_success_rate_by_density(densities, proposed_rates, greedy_rates):
         plt.text(x, y - 2, f"{y:.2f}", ha='center', va='top', fontsize=9, color='red', fontweight='bold')
     
     # 4. 그래프 제목과 축 이름
-    plt.title("SV Selection Success Rate Comparision by TV Density", fontsize=14)
+    plt.title("Success Rate Comparision by TV Density, ALPHA=0.7", fontsize=14)
     plt.xlabel("TV Density (Ratio of TVs in network)", fontsize=12)
     plt.ylabel("Success Rate (%)", fontsize=12)
     plt.grid(True, alpha=0.3)       # 5. 모눈종이 격자 켜기(켜기, 투명도)

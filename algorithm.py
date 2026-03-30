@@ -10,9 +10,9 @@ def ccw(A, B, C):
 
 """ 선분 AB(차량 통신선)와 선분 CD(건물 벽면)가 교차하는지 판별 """
 def is_intersect(A, B, C, D):
-    ab_cd = ccw(A, B, C) * ccw(A, B, D)     # AB를 기준으로 C와 D가 서로 반대편에 있는지
-    cd_ab = ccw(C, D, A) * ccw(C, D, B)     # CD를 기준으로 A와 B가 서로 반대편에 있는지
-    if ab_cd < 0 and cd_ab < 0:
+    c2 = ccw(A, B, C) * ccw(A, B, D)     # C2: 통신 링크 기준 벽 끝점들의 위치
+    c1 = ccw(C, D, A) * ccw(C, D, B)     # C1: 벽 기준 차량들의 위치
+    if c1 < 0 and c2 < 0:
         return True
     return False
 
@@ -52,30 +52,33 @@ def calculate_channel_gain(distance):
     # 물리 공식 구현: (파장 / (4 * pi * 거리)) ^ 경로손실지수
     return (c.WAVELENGTH / (4 * math.pi * distance)) ** c.PATH_LOSS_EXP
 
+""" V2I 전용 채널 이득 계산 """
+def calculate_v2i_gain(distance):
+    if distance == 0: return 0
+    return (c.WAVELENGTH / (4 * math.pi * distance)) ** c.V2I_PATH_LOSS_EXP
+
 """ 두 차량의 이동성 안정성 점수 구하는 함수(벡터 내적 이용) """
-def calculate_mobility_stability(tv_id, v_id, step_info):
+def calculate_mobility_stability(id1, id2, step_info):
     # 차량의 속력(speed)과 방향(angle) 가져옴
-    speed1 = step_info[tv_id]['speed']
-    angle1 = step_info[tv_id]['angle']
-    speed2 = step_info[v_id]['speed']
-    angle2 = step_info[v_id]['angle']
+    speed1 = step_info[id1]['speed']
+    angle1 = math.radians(step_info[id1]['angle'])
+    speed2 = step_info[id2]['speed']
+    angle2 = math.radians(step_info[id2]['angle'])
     
-    # SUMO의 각도(Angle)를 Radian으로 단위 변환(파이썬이 알아듣도록)
-    rad1 = math.radians(angle1)
-    rad2 = math.radians(angle2)
-    
+    # 정지 상태일 경우 분모가 0이 되는 것을 방지 (중립값 0 반환)
+    if speed1 < 0.1 or speed2 < 0.1:
+        return 0.0
+
     # 속력과 각도를 이용해 x축, y축 방향의 벡터(화살표) 길이 구함
-    v1_x = speed1 * math.sin(rad1)
-    v1_y = speed1 * math.cos(rad1)
-    v2_x = speed2 * math.sin(rad2)
-    v2_y = speed2 * math.cos(rad2)
-    
-    dot_product = (v1_x * v2_x) + (v1_y * v2_y)     # 내적
-    max_possible_dot = c.MAX_SPEED_MPS ** 2
-    s_mob = dot_product / max_possible_dot if max_possible_dot > 0 else 0
-    normalized_score = (s_mob + 1) / 2
-    
-    return normalized_score           # -1(정반대)에서 1(같은 방향)사이의 값을 정규화한 값
+    v1 = (speed1 * math.sin(angle1), speed1 * math.cos(angle1))
+    v2 = (speed2 * math.sin(angle2), speed2 * math.cos(angle2))
+
+    dot_product = v1[0]*v2[0] + v1[1]*v2[1]
+    mag1 = math.sqrt(v1[0]**2 + v1[1]**2)
+    mag2 = math.sqrt(v2[0]**2 + v2[1]**2)
+
+    # 코사인 유사도 S = (A·B) / (|A||B|)
+    return dot_product / (mag1 * mag2)
 
 """ 다른 TV들이 쏘는 전파가 내가 고르려는 SV에게 얼마나 잡음인지 계산(잠재 지연) """
 def get_total_interference(tv_id, sv_pos, step_info):
@@ -116,7 +119,8 @@ def sv_selection(tv_id, step_info, task_info):
                 if not check_los(tv_pos, sv_pos, c.BUILDING_WALLS):
                     continue 
                 # SV 후보의 상세 정보 계산
-                mob_score = calculate_mobility_stability(tv_id, v_id, step_info)
+                cos_sim = calculate_mobility_stability(tv_id, v_id, step_info)
+                mob_score = (cos_sim + 1) / 2  # 0~1 사이로 정규화
                 # 통신 속도(Rate) 계산
                 gain = calculate_channel_gain(dist)
                 interf = get_total_interference(tv_id, sv_pos, step_info)
@@ -132,12 +136,12 @@ def sv_selection(tv_id, step_info, task_info):
                 
                 # 최대 지연 허용 지연을 넘으면 후보 리스트에 넣지 않음(탈락!)
                 if t_off <= latency_constraint:
-                    sv_candidates.append({'id': v_id, 'rate': rate, 'mob_score': mob_score})
+                    sv_candidates.append({'id': v_id, 'rate': rate, 'mob_score': mob_score, 't_off': t_off})
                 
     # 4. 후보 없음: 1-hop 이내에 차량 없음 + 딜레이 제약
     if not sv_candidates:
         ### 여기에 나중에 RSU에게 넘기는 코드 추가
-        return None
+        return None, 0
     
     # 5. 정규화 및 최종 점수 계산(살아남은 후보끼리 경쟁)
     # rate가 가장 높은 SV 찾기(분모 0 방지)
@@ -154,8 +158,10 @@ def sv_selection(tv_id, step_info, task_info):
         if sv['final_score'] > max_final_score:
             max_final_score = sv['final_score']
             best_sv_id = sv['id']
+            best_t_off = sv['t_off']
             
-    return best_sv_id
+    return best_sv_id, best_t_off
+
 
 """ [비교 스킴1] distance-based greedy """
 def sv_selection_distance_greedy(tv_id, step_info, task_info):
@@ -183,7 +189,7 @@ def sv_selection_distance_greedy(tv_id, step_info, task_info):
                     min_dist = dist
                     best_sv_id = v_id
     if best_sv_id is None:              # 반경 내 SV가 아예 없으면 실패
-        return None
+        return None, 0
 
     sv_pos = step_info[best_sv_id]['pos']
     dist = calculate_distance(tv_pos, sv_pos)
@@ -197,5 +203,86 @@ def sv_selection_distance_greedy(tv_id, step_info, task_info):
         t_tx = task_bits / rate
         t_off = t_tx + t_comp
         if t_off <= latency_constraint:
-            return best_sv_id
-    return None     # 1초 넘겼으니 실패
+            return best_sv_id, t_off
+    return None, 0     # 1초 넘겼으니 실패
+
+""" [모델링 3, 4, 5단계] 리턴 경로 평가 및 최종 전송 로직 """
+def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off):
+    tv_pos = step_info[tv_id]['pos']
+    sv_pos = step_info[sv_id]['pos']
+    d_out = task_info['task_bits'] * c.ALPHA
+    t_rem = task_info['lat_constraint'] - t_off
+    
+    if t_rem <= 0: return False, t_off
+
+    # 3. 리턴 경로 상태 확인 (Direct Link Check)
+    dist = calculate_distance(sv_pos, tv_pos)
+    # 1-hop 이내이고 가시선(LOS)이 확보된 경우 우선적으로 직접 전송
+    if dist <= c.ONE_HOP_LIMIT and check_los(tv_pos, sv_pos, c.BUILDING_WALLS):
+        gain = calculate_channel_gain(dist)
+        interf = get_total_interference(sv_id, tv_pos, step_info)
+        rate = c.BW * math.log2(1 + (c.P_TX_SV * gain) / (interf + c.NOISE_POWER)) if (interf + c.NOISE_POWER) > 0 else 0
+        if rate > 0:
+            t_return = d_out / rate
+            if t_return <= t_rem:
+                return True, t_off + t_return
+
+    # 4 & 5 통합. 최적 릴레이 선택 (Relay Vehicle + RSU Candidate Pool)
+    relay_candidates = []
+    min_cost = float('inf')
+
+    # --- 후보 1: 주변 차량들 (V2V Relay) ---
+    for rl_id, info in step_info.items():
+        
+        if rl_id in [tv_id, sv_id]: continue
+        rl_pos = info['pos']
+        
+        dist_s_r = calculate_distance(sv_pos, rl_pos)
+        dist_r_t = calculate_distance(rl_pos, tv_pos)
+            
+        # 릴레이도 각 링크가 1-hop 범위 내에 있어야 함
+        if dist_s_r > c.ONE_HOP_LIMIT or dist_r_t > c.ONE_HOP_LIMIT:
+            continue
+        
+        # 1차 필터링: 양방향 LOS 확보
+        if check_los(sv_pos, rl_pos, c.BUILDING_WALLS) and check_los(rl_pos, tv_pos, c.BUILDING_WALLS):
+            # SV -> RL 전송 속도
+            rate_s_r = c.BW * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_s_r)) / (get_total_interference(sv_id, rl_pos, step_info) + c.NOISE_POWER))
+            rate_r_t = c.BW * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_r_t)) / (get_total_interference(rl_id, tv_pos, step_info) + c.NOISE_POWER))
+            
+            if rate_s_r > 0 and rate_r_t > 0:
+                t_rl = (d_out / rate_s_r) + (d_out / rate_r_t)
+                if t_rl <= t_rem:
+                    # 2차 점수 산정 (이동성 안정성)
+                    s_sv = calculate_mobility_stability(rl_id, sv_id, step_info)
+                    s_tv = calculate_mobility_stability(rl_id, tv_id, step_info)
+                    s_mob = (s_sv + s_tv) / 2
+                    s_mob_tilde = (s_mob + 1) / 2  # 모델링의 tilde{S}_mob^(k)
+                    
+                    # 최종 비용 함수 계산
+                    v_cost = c.WEIGHT_RL_DELAY * (t_rl / t_rem) + c.WEIGHT_RL_MOB * (1 - s_mob_tilde)
+                    relay_candidates.append({'type': 'VEHICLE', 'cost': v_cost, 'total_time': t_off + t_rl})
+
+    # --- 후보 2: 인프라 (RSU Relay/Fallback) ---
+    # RSU는 항상 고정된 위치에 있으며 일반적으로 높은 곳에 설치되어 LOS 환경을 가정함
+    dist_s_rsu = calculate_distance(sv_pos, c.RSU_POS)
+    dist_rsu_t = calculate_distance(c.RSU_POS, tv_pos)
+    
+    # RSU 전송 속도 계산 (V2I 경로 손실 지수 적용)
+    rate_s_rsu = c.BW * math.log2(1 + (c.P_TX_SV * calculate_v2i_gain(dist_s_rsu)) / c.NOISE_POWER)
+    rate_rsu_t = c.BW * math.log2(1 + (c.P_TX_RSU * calculate_v2i_gain(dist_rsu_t)) / c.NOISE_POWER)
+    
+    if rate_s_rsu > 0 and rate_rsu_t > 0:
+        t_rsu = (d_out / rate_s_rsu) + c.BACKHAUL_DELAY + (d_out / rate_rsu_t)
+        if t_rsu <= t_rem:
+            # RSU는 움직이지 않으므로 이동성 안정성 점수(s_mob_tilde)를 최대치인 1.0으로 설정
+            # (1 - 1.0) = 0 이 되어 Mobility Cost는 0이 됨 (매우 안정적)
+            rsu_cost = c.WEIGHT_RL_DELAY * (t_rsu / t_rem) + c.WEIGHT_RL_MOB * (1 - 1.0)
+            relay_candidates.append({'type': 'RSU', 'cost': rsu_cost, 'total_time': t_off + t_rsu})
+
+    # 모든 후보(차량 + RSU) 중 최적의 경로 선택
+    if relay_candidates:
+        best_candidate = min(relay_candidates, key=lambda x: x['cost'])
+        return True, best_candidate['total_time']
+
+    return False, t_off # 모든 경로 실패

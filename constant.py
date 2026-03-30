@@ -53,8 +53,8 @@ COMP_MAX_INTENSITY = 1500           # 최대 연산 복잡도
 COMP_MIN_INTENSITY = 500            # 최소 연산 복잡도
 MAX_LATENCY_CONSTRAINT = 1.0               # 최대 허용 지연 (1s)
 MIN_LATENCY_CONSTRAINT = 0.1               # 최소 허용 지연 (100ms)
-WEIGHT_SV_DIR = 1.0                # SV 선택 시 방향 유사도 가중치
-WEIGHT_SV_RATE = 0.0               # SV 선택 시 전송 효율 가중치
+WEIGHT_SV_DIR = 0.5                # SV 선택 시 방향 유사도 가중치
+WEIGHT_SV_RATE = 0.5               # SV 선택 시 전송 효율 가중치
 WEIGHT_RL_DELAY = 0.5              # relay 선택 시 딜레이 가중치
 WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중치
 
@@ -63,8 +63,8 @@ WEIGHT_RL_MOB = 0.5                # relay 선택 시 이동성 안정성 가중
 
 # --- 실험 1: 데이터 크기 및 리턴 비율 ---
 TASK_MIN_MBITS = 0.5             # 최소 0.5 Mbits
-TASK_MAX_MBITS = 2.0             # 최소 2.0 Mbits
-ALPHA = 0.3                      # 리턴 데이터 비율 (0.1 ~ 1.0 가변) -> 실험 시 사용할 디폴트 값
+TASK_MAX_MBITS = 5.0             # 최대 5.0 Mbits
+ALPHA = 0.7                      # 리턴 데이터 비율 (0.1 ~ 1.0 가변) -> 실험 시 사용할 디폴트 값
 ALPHA_X_AXIS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]       # 그래프 그릴 때 사용
 
 # --- 실험 2: 환경 배치 및 밀도 ---

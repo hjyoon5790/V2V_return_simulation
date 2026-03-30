@@ -62,11 +62,20 @@ def run_single_simulation(density):
                     }
                     task_for_proposed = task_info_original.copy()
                     task_for_greedy = task_info_original.copy()
+
                     # 내 알고리즘 실행 및 결과 기록
-                    if alg.sv_selection(v_id, step_info, task_for_proposed):      # SV 선택 시도. SV값을 돌려주면 True, 안 돌려주면 False로 취급됨
-                        success_proposed += 1      # 성공 시 횟수 증가
-                    if alg.sv_selection_distance_greedy(v_id, step_info, task_for_greedy):
-                        success_greedy += 1
+                    best_sv_p, t_off_p = alg.sv_selection(v_id, step_info, task_for_proposed)
+                    if best_sv_p:
+                        # SV가 선택되었다면 리턴 경로(Direct, Relay, RSU)까지 평가
+                        is_success, _ = alg.evaluate_return_path(v_id, best_sv_p, step_info, task_for_proposed, t_off_p)
+                        if is_success:
+                            success_proposed += 1
+
+                    best_sv_g, t_off_g = alg.sv_selection_distance_greedy(v_id, step_info, task_for_greedy)
+                    if best_sv_g:
+                        is_success_g, _ = alg.evaluate_return_path(v_id, best_sv_g, step_info, task_for_greedy, t_off_g)
+                        if is_success_g:
+                            success_greedy += 1
                         
         if step > 500:
             break
@@ -97,9 +106,9 @@ if __name__ == "__main__":
         # 각 밀도당 5번 반복 실행
         for i in range(NUM_TRIALS):
             print(f"  [시행 {i+1}/{NUM_TRIALS}]")
-            p_rate, g_rate = run_single_simulation(d)
-            trial_proposed.append(p_rate)
-            trial_greedy.append(g_rate)
+            rate_proposed, rate_greedy = run_single_simulation(d)
+            trial_proposed.append(rate_proposed)
+            trial_greedy.append(rate_greedy)
         
         avg_p = sum(trial_proposed) / NUM_TRIALS
         avg_g = sum(trial_greedy) / NUM_TRIALS
