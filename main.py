@@ -64,10 +64,10 @@ def run_single_simulation(density):
                 task = {'task_bits': task_bits, 't_comp': t_comp, 'lat_constraint': lat_constraint}
                 
                 # 일단 자원이 넉넉하다고 가정(n=1)하고 어떤 SV를 선호하는지 결정
-                sv_p, _ = alg.sv_selection(tv_id, step_info, task, n_sharing=1)
+                sv_p, _ = alg.proposed_sv_selection(tv_id, step_info, task, n_sv_sharing=1)
                 if sv_p: proposed_requests.append((tv_id, sv_p, task))
 
-                sv_g, _ = alg.sv_selection_distance_greedy(tv_id, step_info, task, n_sharing=1)
+                sv_g, _ = alg.distance_greedy_sv_selection(tv_id, step_info, task, n_sv_sharing=1)
                 if sv_g: greedy_requests.append((tv_id, sv_g, task.copy()))
 
             # --- Step 2: 노드별 접속 차량 수 카운트 (Sharing Factor N 계산) ---
@@ -85,19 +85,19 @@ def run_single_simulation(density):
             for tv_id, sv_id, task in proposed_requests:
                 n = p_counts[sv_id]
                 # 실제 N등분된 자원으로 다시 계산
-                _, t_off_shared = alg.sv_selection(tv_id, step_info, task, n_sharing=n)
+                _, t_off_shared = alg.proposed_sv_selection(tv_id, step_info, task, n_sv_sharing=n)
                 if t_off_shared != c.PENALTY_DELAY: # 자원 공유 후에도 지연 시간 조건을 만족하면
                     # 리턴 경로 평가 (여기서도 SV 대역폭 공유 n 적용)
-                    is_success, _ = alg.evaluate_return_path(tv_id, sv_id, step_info, task, t_off_shared, n_sv_sharing=n)
+                    is_success, _ = alg.proposed_evaluate_return_path(tv_id, sv_id, step_info, task, t_off_shared, n_sv_sharing=n)
                     if is_success:
                         success_proposed += 1
 
             # 2) Greedy 기법
             for tv_id, sv_id, task in greedy_requests:
                 n = g_counts[sv_id]
-                _, t_off_shared = alg.sv_selection_distance_greedy(tv_id, step_info, task, n_sharing=n)
+                _, t_off_shared = alg.distance_greedy_sv_selection(tv_id, step_info, task, n_sv_sharing=n)
                 if t_off_shared != c.PENALTY_DELAY:
-                    is_success, _ = alg.evaluate_return_path(tv_id, sv_id, step_info, task, t_off_shared, n_sv_sharing=n)
+                    is_success, _ = alg.distance_greedy_evaluate_return_path(tv_id, sv_id, step_info, task, t_off_shared, n_sv_sharing=n)
                     if is_success:
                         success_greedy += 1
                         

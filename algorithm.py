@@ -80,27 +80,52 @@ def calculate_mobility_stability(id1, id2, step_info):
     # 코사인 유사도 S = (A·B) / (|A||B|)
     return dot_product / (mag1 * mag2)
 
+""" 차량과 고정된 RSU 사이의 이동성 안정성 점수 구하는 함수 """
+def calculate_rsu_mobility_stability(veh_id, step_info):
+    veh_pos = step_info[veh_id]['pos']
+    speed = step_info[veh_id]['speed']
+    angle = math.radians(step_info[veh_id]['angle'])
+    rsu_pos = c.RSU_POS  # 토폴로지에 RSU는 하나이므로 상수를 직접 사용
+
+    if speed < 0.1: return 0.0
+
+    # 1. 차량의 속도 벡터 (v_x, v_y)
+    v_veh = (speed * math.sin(angle), speed * math.cos(angle))
+    
+    # 2. 차량에서 RSU를 향하는 방향 벡터 (u_x, u_y)
+    u_to_rsu = (rsu_pos[0] - veh_pos[0], rsu_pos[1] - veh_pos[1])
+    mag_u = math.sqrt(u_to_rsu[0]**2 + u_to_rsu[1]**2)
+    
+    if mag_u < 0.1: return 1.0 # RSU 바로 위라면 최상급 안정성
+
+    # 3. 두 벡터 사이의 코사인 유사도 계산
+    dot_product = v_veh[0]*u_to_rsu[0] + v_veh[1]*u_to_rsu[1]
+    return dot_product / (speed * mag_u)
+
 """ 다른 TV들이 쏘는 전파가 내가 고르려는 SV에게 얼마나 잡음인지 계산(잠재 지연) """
-def get_total_interference(tv_id, sv_pos, step_info):
+def get_total_interference(tx_id, rx_id, step_info):
     total_interf = 0        # 간섭을 더할 변수 초기화
     
+    # 수신측(rx)의 좌표 결정 (ID가 들어오면 위치를 찾고, 좌표가 직접 들어오면 그대로 사용)
+    rx_pos = step_info[rx_id]['pos'] if isinstance(rx_id, str) else rx_id
+
     # 나(TV)를 제외한 다른 TV를 찾음
     for other_v, info in step_info.items():
-        if other_v != tv_id and info['type'] == c.TYPE_TV:
+        if other_v != tx_id and info['type'] == c.TYPE_TV:
             # 다른 TV와 타겟 SV 사이의 거리 구함 + 벽에 막힌 전파 무시
             other_pos = info['pos']
-            if not check_los(other_pos, sv_pos, c.BUILDING_WALLS):
+            if not check_los(other_pos, rx_pos, c.BUILDING_WALLS):
                 continue
-            dist_to_sv = calculate_distance(other_pos, sv_pos)
-            gain = calculate_channel_gain(dist_to_sv)
+            dist_to_rx = calculate_distance(other_pos, rx_pos)
+            gain = calculate_channel_gain(dist_to_rx)
             total_interf += (c.P_TX_TV * gain)
     
     return total_interf
 
 """ TV를 위해 최적의 SV 선택하는 함수 """
-def sv_selection(tv_id, step_info, task_info, n_sharing=1):
+def proposed_sv_selection(tv_id, step_info, task_info, n_sv_sharing=1):
     # [추가] 최대 접속 인원 초과 시 실패 처리
-    if n_sharing > c.MAX_N_SHARING:
+    if n_sv_sharing > c.MAX_N_SHARING:
         return None, c.PENALTY_DELAY
 
     task_bits = task_info['task_bits']
@@ -127,16 +152,16 @@ def sv_selection(tv_id, step_info, task_info, n_sharing=1):
                 mob_score = (cos_sim + 1) / 2  # 0~1 사이로 정규화
                 # 통신 속도(Rate) 계산
                 gain = calculate_channel_gain(dist)
-                interf = get_total_interference(tv_id, sv_pos, step_info)
+                interf = get_total_interference(tv_id, v_id, step_info)
                 sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
                 
                 # [수정] 대역폭 1/N 분할 적용
-                rate = (c.BW / n_sharing) * math.log2(1 + sinr) if sinr > 0 else 0
+                rate = (c.BW / n_sv_sharing) * math.log2(1 + sinr) if sinr > 0 else 0
                 
                 if rate > 0:
                     t_tx = task_bits / rate
                     # [수정] 가용 CPU 자원을 N등분 (연산 시간 t_comp는 N배 증가)
-                    t_off = t_tx + (t_comp * n_sharing)
+                    t_off = t_tx + (t_comp * n_sv_sharing)
                 
                     # 최대 허용 지연을 넘지 않는 후보만 추가
                     if t_off <= latency_constraint:
@@ -166,65 +191,12 @@ def sv_selection(tv_id, step_info, task_info, n_sharing=1):
             
     return best_sv_id, best_t_off
 
-
-""" [비교 스킴1] distance-based greedy """
-def sv_selection_distance_greedy(tv_id, step_info, task_info, n_sharing=1):
-    # [추가] 최대 접속 인원 초과 시 실패 처리
-    if n_sharing > c.MAX_N_SHARING:
-        return None, c.PENALTY_DELAY
-
-    task_bits = task_info['task_bits']
-    t_comp = task_info['t_comp']
-    latency_constraint = task_info['lat_constraint']
-    
-    tv_pos = step_info[tv_id]['pos']   # 현재 TV 위치 가져오기
-    best_sv_id = None
-    min_dist = float('inf')     # 가장 짧은 거리를 찾기 위해 무한대로 초기화
-    
-    # 1. 거리만 보고 가까운 SV 뽑음    
-    for v_id, info in step_info.items():
-        if v_id == tv_id:
-            continue            # 나 자신은 제외
-            
-        # 차량 타입이 SV인 경우만 확인
-        if info['type'] == c.TYPE_SV:
-            sv_pos = info['pos']
-            dist = calculate_distance(tv_pos, sv_pos)    # 거리 계산
-                
-            # 1-hop 범위 안에 있고 지금까지 찾은 거리보다 가까우면 갱신 & LOS 조건 따짐
-            if dist <= c.ONE_HOP_LIMIT and check_los(tv_pos, sv_pos, c.BUILDING_WALLS):
-                if dist < min_dist:
-                    min_dist = dist
-                    best_sv_id = v_id
-    if best_sv_id is None:              # 반경 내 SV가 아예 없으면 실패
-        return None, c.PENALTY_DELAY
-
-    sv_pos = step_info[best_sv_id]['pos']
-    dist = calculate_distance(tv_pos, sv_pos)
-    
-    gain = calculate_channel_gain(dist)
-    interf = get_total_interference(tv_id, sv_pos, step_info)
-    sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
-
-    # [수정] 대역폭 및 CPU 자원 1/N 분할 적용
-    rate = (c.BW / n_sharing) * math.log2(1 + sinr) if sinr > 0 else 0
-                
-    if rate > 0:
-        t_tx = task_bits / rate
-        t_off = t_tx + (t_comp * n_sharing)
-        if t_off <= latency_constraint:
-            return best_sv_id, t_off
-    return None, c.PENALTY_DELAY     # 1초 넘겼으니 실패
-
 """ [모델링 3, 4, 5단계] 리턴 경로 평가 및 최종 전송 로직 """
-def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing=1, n_rl_sharing=1):    
+def proposed_evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing=1, n_rl_sharing=1):    
     tv_pos = step_info[tv_id]['pos']
     sv_pos = step_info[sv_id]['pos']
     d_out = task_info['task_bits'] * c.ALPHA
     t_rem = task_info['lat_constraint'] - t_off
-    
-    # SV 리턴 용량 초과 체크
-    if n_sv_sharing > c.MAX_N_SHARING: return False, c.PENALTY_DELAY
     
     if t_rem <= 0: return False, c.PENALTY_DELAY
 
@@ -233,7 +205,7 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing
     # 1-hop 이내이고 가시선(LOS)이 확보된 경우 우선적으로 직접 전송
     if dist <= c.ONE_HOP_LIMIT and check_los(tv_pos, sv_pos, c.BUILDING_WALLS):
         gain = calculate_channel_gain(dist)
-        interf = get_total_interference(sv_id, tv_pos, step_info)
+        interf = get_total_interference(sv_id, tv_id, step_info)
         # [수정] SV의 리턴 대역폭도 공유
         rate = (c.BW / n_sv_sharing) * math.log2(1 + (c.P_TX_SV * gain) / (interf + c.NOISE_POWER)) if (interf + c.NOISE_POWER) > 0 else 0
         if rate > 0:
@@ -265,8 +237,8 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing
         if check_los(sv_pos, rl_pos, c.BUILDING_WALLS) and check_los(rl_pos, tv_pos, c.BUILDING_WALLS):
             # SV -> RL 전송 속도
             # [수정] 릴레이 노드의 대역폭 공유 적용
-            rate_s_r = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_s_r)) / (get_total_interference(sv_id, rl_pos, step_info) + c.NOISE_POWER))
-            rate_r_t = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_r_t)) / (get_total_interference(rl_id, tv_pos, step_info) + c.NOISE_POWER))
+            rate_s_r = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_s_r)) / (get_total_interference(sv_id, rl_id, step_info) + c.NOISE_POWER))
+            rate_r_t = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_r_t)) / (get_total_interference(rl_id, tv_id, step_info) + c.NOISE_POWER))
             
             if rate_s_r > 0 and rate_r_t > 0:
                 t_rl = (d_out / rate_s_r) + (d_out / rate_r_t)
@@ -296,9 +268,14 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing
     if rate_s_rsu > 0 and rate_rsu_t > 0:
         t_rsu = (d_out / rate_s_rsu) + c.BACKHAUL_DELAY + (d_out / rate_rsu_t)
         if t_rsu <= t_rem:
-            # RSU는 움직이지 않으므로 이동성 안정성 점수(s_mob_tilde)를 최대치인 1.0으로 설정
-            # (1 - 1.0) = 0 이 되어 Mobility Cost는 0이 됨 (매우 안정적)
-            rsu_cost = c.WEIGHT_RL_DELAY * (t_rsu / t_rem) + c.WEIGHT_RL_MOB * (1 - 1.0)
+            # RSU와의 상대적 이동성 점수 계산 (단일 RSU이므로 차량 ID만 전달)
+            s_sv_rsu = calculate_rsu_mobility_stability(sv_id, step_info)
+            s_tv_rsu = calculate_rsu_mobility_stability(tv_id, step_info)
+            
+            s_mob_avg = (s_sv_rsu + s_tv_rsu) / 2
+            s_mob_tilde = (s_mob_avg + 1) / 2  # [-1, 1] 범위를 [0, 1]로 정규화
+            
+            rsu_cost = c.WEIGHT_RL_DELAY * (t_rsu / t_rem) + c.WEIGHT_RL_MOB * (1 - s_mob_tilde)
             relay_candidates.append({'type': 'RSU', 'cost': rsu_cost, 'total_time': t_off + t_rsu})
 
     # 모든 후보(차량 + RSU) 중 최적의 경로 선택
@@ -307,3 +284,129 @@ def evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing
         return True, best_candidate['total_time']
 
     return False, c.PENALTY_DELAY # 모든 경로 실패
+
+
+
+""" [비교 스킴1] distance-based greedy """
+def distance_greedy_sv_selection(tv_id, step_info, task_info, n_sv_sharing=1):
+    # [추가] 최대 접속 인원 초과 시 실패 처리
+    if n_sv_sharing > c.MAX_N_SHARING:
+        return None, c.PENALTY_DELAY
+
+    task_bits = task_info['task_bits']
+    t_comp = task_info['t_comp']
+    latency_constraint = task_info['lat_constraint']
+    
+    tv_pos = step_info[tv_id]['pos']   # 현재 TV 위치 가져오기
+    best_sv_id = None
+    min_dist = float('inf')     # 가장 짧은 거리를 찾기 위해 무한대로 초기화
+    
+    # 1. 거리만 보고 가까운 SV 뽑음    
+    for v_id, info in step_info.items():
+        if v_id == tv_id:
+            continue            # 나 자신은 제외
+            
+        # 차량 타입이 SV인 경우만 확인
+        if info['type'] == c.TYPE_SV:
+            sv_pos = info['pos']
+            dist = calculate_distance(tv_pos, sv_pos)    # 거리 계산
+                
+            # 1-hop 범위 안에 있고 지금까지 찾은 거리보다 가까우면 갱신 
+            if dist <= c.ONE_HOP_LIMIT:
+                if dist < min_dist:
+                    min_dist = dist
+                    best_sv_id = v_id
+    if best_sv_id is None:              # 반경 내 SV가 아예 없으면 실패
+        return None, c.PENALTY_DELAY
+
+    sv_pos = step_info[best_sv_id]['pos']
+
+    # 2. 채점 (Validation): 거리만 보고 가장 가까운 SV를 골랐으므로, 여기서 LOS를 체크함
+    # 만약 NLOS라면 다른 대안을 찾지 않고 그리디 원칙에 따라 바로 실패(None) 반환
+    if not check_los(tv_pos, sv_pos, c.BUILDING_WALLS):
+        return None, c.PENALTY_DELAY
+
+    dist = calculate_distance(tv_pos, sv_pos)
+    gain = calculate_channel_gain(dist)
+    interf = get_total_interference(tv_id, best_sv_id, step_info)
+    sinr = (c.P_TX_TV * gain) / (interf + c.NOISE_POWER)
+    rate = (c.BW / n_sv_sharing) * math.log2(1 + sinr) if sinr > 0 else 0
+                
+    # 3. 채점 (Validation): 거리만 보고 고른 SV가 실제로 지연 시간 조건을 만족하는지 확인
+    if rate > 0:
+        t_tx = task_bits / rate
+        t_off = t_tx + (t_comp * n_sv_sharing)
+        if t_off <= latency_constraint:
+            return best_sv_id, t_off
+    return None, c.PENALTY_DELAY     # 시간 제약 넘겼으니 실패
+
+def distance_greedy_evaluate_return_path(tv_id, sv_id, step_info, task_info, t_off, n_sv_sharing=1, n_rl_sharing=1):
+    # [수정] SV의 리턴 대역폭도 공유 적용
+    tv_pos = step_info[tv_id]['pos']
+    sv_pos = step_info[sv_id]['pos']
+    d_out = task_info['task_bits'] * c.ALPHA
+    t_rem = task_info['lat_constraint'] - t_off
+    
+    if t_rem <= 0: return False, c.PENALTY_DELAY
+
+    # 1. SV에서 TV로 직접 전송(Direct) 가능한지 확인 (거리 기준)
+    dist_direct = calculate_distance(sv_pos, tv_pos)
+    if dist_direct <= c.ONE_HOP_LIMIT:
+        # 채점: 거리 안에 있다면 LOS 여부를 확인 (실패 시 릴레이 탐색으로 넘어감)
+        if check_los(sv_pos, tv_pos, c.BUILDING_WALLS):
+            gain = calculate_channel_gain(dist_direct)
+            interf = get_total_interference(sv_id, tv_id, step_info)
+            rate = (c.BW / n_sv_sharing) * math.log2(1 + (c.P_TX_SV * gain) / (interf + c.NOISE_POWER)) if (interf + c.NOISE_POWER) > 0 else 0
+            if rate > 0:
+                t_return = d_out / rate
+                if t_return <= t_rem:
+                    return True, t_off + t_return
+
+    # 2. 최단 거리 릴레이 후보 선정 (Pure Greedy Selection)
+    # 가시선(LOS)이나 전송 속도를 고려하지 않고, 오직 SV와 가장 가까운 노드 하나만 고름
+    best_rl_id = None
+    min_dist = float('inf')
+    is_rsu_selected = False
+
+    # 차량들 중 가장 가까운 노드 탐색
+    for v_id, info in step_info.items():
+        if v_id in [tv_id, sv_id]: continue
+        d = calculate_distance(sv_pos, info['pos'])
+        if d < min_dist:
+            min_dist = d
+            best_rl_id = v_id
+            is_rsu_selected = False
+
+    # RSU 거리와 비교하여 더 가까우면 RSU 선택
+    dist_s_rsu = calculate_distance(sv_pos, c.RSU_POS)
+    if dist_s_rsu < min_dist:
+        min_dist = dist_s_rsu
+        is_rsu_selected = True
+        best_rl_id = None
+
+    # 3. 채점 (Validation): 선정된 가장 가까운 후보가 실제로 통신 가능한지 확인
+    if is_rsu_selected:
+        dist_rsu_t = calculate_distance(c.RSU_POS, tv_pos)
+        # RSU 채점 (거리 제약 및 시간 확인)
+        if min_dist <= c.ONE_HOP_LIMIT and dist_rsu_t <= c.ONE_HOP_LIMIT:
+            rate_s_rsu = (c.BW_RSU / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_v2i_gain(min_dist)) / c.NOISE_POWER)
+            rate_rsu_t = (c.BW_RSU / n_rl_sharing) * math.log2(1 + (c.P_TX_RSU * calculate_v2i_gain(dist_rsu_t)) / c.NOISE_POWER)
+            if rate_s_rsu > 0 and rate_rsu_t > 0:
+                t_rsu = (d_out / rate_s_rsu) + c.BACKHAUL_DELAY + (d_out / rate_rsu_t)
+                if t_rsu <= t_rem:
+                    return True, t_off + t_rsu
+    elif best_rl_id:
+        rl_pos = step_info[best_rl_id]['pos']
+        dist_r_t = calculate_distance(rl_pos, tv_pos)
+        # 차량 릴레이 채점 (거리, LOS, 시간 확인)
+        if min_dist <= c.ONE_HOP_LIMIT and dist_r_t <= c.ONE_HOP_LIMIT:
+            if check_los(sv_pos, rl_pos, c.BUILDING_WALLS) and check_los(rl_pos, tv_pos, c.BUILDING_WALLS):
+                rate_s_r = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(min_dist)) / (get_total_interference(sv_id, best_rl_id, step_info) + c.NOISE_POWER))
+                rate_r_t = (c.BW / n_rl_sharing) * math.log2(1 + (c.P_TX_SV * calculate_channel_gain(dist_r_t)) / (get_total_interference(best_rl_id, tv_id, step_info) + c.NOISE_POWER))
+                if rate_s_r > 0 and rate_r_t > 0:
+                    t_relay = (d_out / rate_s_r) + (d_out / rate_r_t)
+                    if t_relay <= t_rem:
+                        return True, t_off + t_relay
+
+    # 선정된 '가장 가까운 노드'가 채점(LOS/지연시간)에서 탈락하면 다른 노드를 찾지 않고 즉시 실패
+    return False, c.PENALTY_DELAY
